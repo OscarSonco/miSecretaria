@@ -19,7 +19,8 @@ object WalletConfig {
     fun rules(context: Context): List<WalletRule> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
             ?: return defaults
-        return raw.split("\\n").mapNotNull { line ->
+        val lines = if (raw.contains("\\n")) raw.split("\\n") else raw.split("\n")
+        return lines.mapNotNull { line ->
             val parts = line.split("|", limit = 3)
             if (parts.size == 3) WalletRule(parts[0], parts[1], parts[2] == "1") else null
         }.ifEmpty { defaults }
@@ -42,6 +43,6 @@ object WalletConfig {
 
     private fun save(context: Context, values: List<WalletRule>) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY, values.joinToString("\\n") { "${it.name}|${it.packageId}|${if (it.enabled) "1" else "0"}" }).apply()
+            .putString(KEY, values.joinToString("\n") { "${it.name}|${it.packageId}|${if (it.enabled) "1" else "0"}" }).apply()
     }
 }

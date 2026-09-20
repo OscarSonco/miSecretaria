@@ -59,7 +59,7 @@ object WalletNotificationStore {
     fun timestampForFile(): String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 
     fun exportText(): String = buildString {
-        appendLine("ScoSecretaria V1.0 - Historial de notificaciones")
+        appendLine("ScoSecretaria V1.4 - Historial de notificaciones")
         appendLine()
         history().forEach {
             appendLine("[${it.receivedAt}] ${it.wallet}")

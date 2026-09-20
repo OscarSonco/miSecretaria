@@ -8,8 +8,8 @@ import android.content.Context
 import android.content.Intent
 
 object WalletNotificationNotifier {
-    private const val channelId = "wallet_payments_v06"
-    private const val notificationTag = "ScoSecretariaV1.0"
+    private const val channelId = "wallet_payments_v14"
+    private const val notificationTag = "ScoSecretariaV1.4"
 
     fun show(context: Context, item: WalletNotification) {
         val manager = context.getSystemService(NotificationManager::class.java)
