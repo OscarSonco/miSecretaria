@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "571355924232",
+    "project_id": "misecretaria-67c62",
+    "storage_bucket": "misecretaria-67c62.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:571355924232:android:1c95d529743b706234cebd",
+        "android_client_info": {
+          "package_name": "com.sco.misecretaria"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA4_1FC_oSn90b8xS_K_wpHe70xRjEwevE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

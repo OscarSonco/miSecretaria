@@ -1,20 +1,23 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.appdistribution)
 }
 
 android {
-    namespace = "com.oscarsonco.scosecretaria"
+    namespace = "com.sco.misecretaria"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.oscarsonco.scosecretaria"
+        applicationId = "com.sco.misecretaria"
         minSdk = 26
         targetSdk = 37
-        versionCode = 14
-        versionName = "1.4"
+        // Esquema: versionCode = major*1000 + minor (soporta minor hasta 999, ej. 2.700 -> 2700)
+        versionCode = 2006
+        versionName = "2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,6 +35,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
