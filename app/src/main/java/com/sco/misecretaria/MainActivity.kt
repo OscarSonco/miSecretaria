@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.sco.misecretaria.ui.theme.ScoSecretariaTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 private const val REPORT_MIME = "text/plain"
@@ -154,10 +155,41 @@ private enum class Screen { HOME, SETTINGS, READ }
     var speechRate by remember { mutableStateOf(DisplayPreferences.speechRateMultiplier(context)) }
     var walletName by remember { mutableStateOf("") }; var walletPkg by remember { mutableStateOf("") }
     var appName by remember { mutableStateOf("") }; var appPkg by remember { mutableStateOf("") }
+    var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateChecked by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Configuración", style = MaterialTheme.typography.headlineSmall) }
         PermissionRow("Acceso a notificaciones", isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         PermissionRow("Mostrar sobre otras aplicaciones", Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
+        Spacer(Modifier.height(10.dp))
+        Text("Versión instalada: ${AppInfo.VERSION}", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = {
+                checkingUpdate = true; updateChecked = false
+                scope.launch { updateInfo = UpdateManager.checkForUpdate(); checkingUpdate = false; updateChecked = true }
+            }, enabled = !checkingUpdate) { Text(if (checkingUpdate) "Buscando..." else "Buscar actualización") }
+        }
+        if (updateChecked) {
+            val info = updateInfo
+            if (info == null) {
+                Text("Estás en la última versión.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text("Nueva versión disponible: ${info.versionName}", style = MaterialTheme.typography.titleMedium)
+                    if (info.notes.isNotBlank()) Text(info.notes, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = {
+                        if (!UpdateManager.canInstallPackages(context)) {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:${context.packageName}")))
+                        } else {
+                            UpdateManager.downloadAndInstall(context, info)
+                        }
+                    }) { Text("Actualizar ahora") }
+                } }
+            }
+        }
         Spacer(Modifier.height(10.dp)); SettingSwitch("Notificación hablada", speech) { speech = it; DisplayPreferences.setSpeechEnabled(context, it) }
         SettingSwitch("Pantalla de aviso", alert) { alert = it; DisplayPreferences.setAlertEnabled(context, it) }
         SettingSwitch("Pantalla completa", fullScreen) { fullScreen = it; DisplayPreferences.setFullScreenEnabled(context, it) }

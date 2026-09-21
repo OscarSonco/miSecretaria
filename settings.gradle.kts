@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ScoSecretaria"
+rootProject.name = "miSecretaria"
 include(":app")
  
