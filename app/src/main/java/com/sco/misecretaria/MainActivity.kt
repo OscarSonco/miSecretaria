@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -76,15 +77,58 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { HOME, SETTINGS, READ }
+private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP }
 
 @Composable private fun ScoSecretariaApp(activity: MainActivity) {
     var screen by remember { mutableStateOf(Screen.HOME) }
     when (screen) {
         Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ })
-        Screen.SETTINGS -> SettingsScreen({ screen = Screen.HOME }, activity)
+        Screen.SETTINGS -> SettingsScreen(
+            onBack = { screen = Screen.HOME },
+            activity = activity,
+            onPickWallet = { screen = Screen.PICK_WALLET },
+            onPickApp = { screen = Screen.PICK_APP }
+        )
         Screen.READ -> ReadScreen({ screen = Screen.HOME })
+        Screen.PICK_WALLET -> InstalledAppsScreen(target = PickerTarget.WALLET, onDone = { screen = Screen.SETTINGS })
+        Screen.PICK_APP -> InstalledAppsScreen(target = PickerTarget.APP, onDone = { screen = Screen.SETTINGS })
     }
+}
+
+enum class PickerTarget { WALLET, APP }
+
+@Composable private fun InstalledAppsScreen(target: PickerTarget, onDone: () -> Unit) {
+    val context = LocalContext.current
+    var apps by remember { mutableStateOf<List<InstalledAppInfo>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var query by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        apps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { InstalledAppsProvider.list(context) }
+        loading = false
+    }
+    val filtered = remember(apps, query) {
+        if (query.isBlank()) apps else apps.filter { it.label.contains(query, true) || it.packageName.contains(query, true) }
+    }
+    Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onDone) { Text("Volver") }; Text(if (target == PickerTarget.WALLET) "Elegir billetera" else "Elegir aplicación", style = MaterialTheme.typography.headlineSmall) }
+        OutlinedTextField(query, { query = it }, label = { Text("Buscar") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        if (loading) Text("Cargando aplicaciones instaladas...")
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(filtered, key = { it.packageName }) { app ->
+                Card(Modifier.fillMaxWidth().clickable {
+                    if (target == PickerTarget.WALLET) WalletConfig.add(context, app.label, app.packageName)
+                    else AppConfig.add(context, app.label, app.packageName)
+                    onDone()
+                }) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(app.label, style = MaterialTheme.typography.titleSmall)
+                        Text(app.packageName, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    } }
 }
 
 @Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit) {
@@ -143,7 +187,7 @@ private enum class Screen { HOME, SETTINGS, READ }
     } }
 }
 
-@Composable private fun SettingsScreen(onBack: () -> Unit, activity: MainActivity) {
+@Composable private fun SettingsScreen(onBack: () -> Unit, activity: MainActivity, onPickWallet: () -> Unit, onPickApp: () -> Unit) {
     val context = LocalContext.current
     var rules by remember { mutableStateOf(WalletConfig.rules(context)) }
     var appRules by remember { mutableStateOf(AppConfig.rules(context)) }
@@ -220,6 +264,7 @@ private enum class Screen { HOME, SETTINGS, READ }
         }
         Text("Billeteras autorizadas", style = MaterialTheme.typography.titleMedium)
         rules.forEach { r -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(r.name); Switch(checked = r.enabled, onCheckedChange = { WalletConfig.setEnabled(context, r.name, it); rules = WalletConfig.rules(context) }) } }
+        Button(onClick = onPickWallet) { Text("Elegir desde apps instaladas") }
         OutlinedTextField(walletName, { walletName = it }, label = { Text("Nombre de nueva billetera") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(walletPkg, { walletPkg = it }, label = { Text("Paquete Android (opcional)") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = { WalletConfig.add(context, walletName, walletPkg); rules = WalletConfig.rules(context); walletName = ""; walletPkg = "" }) { Text("Agregar billetera") }
@@ -227,6 +272,7 @@ private enum class Screen { HOME, SETTINGS, READ }
         Text("Aplicaciones (General)", style = MaterialTheme.typography.titleMedium)
         Text("WhatsApp, Messenger, SMS u otras: lee el título de la app + el mensaje completo.", style = MaterialTheme.typography.bodySmall)
         appRules.forEach { r -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(r.name); Switch(checked = r.enabled, onCheckedChange = { AppConfig.setEnabled(context, r.name, it); appRules = AppConfig.rules(context) }) } }
+        Button(onClick = onPickApp) { Text("Elegir desde apps instaladas") }
         OutlinedTextField(appName, { appName = it }, label = { Text("Nombre de la aplicación") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(appPkg, { appPkg = it }, label = { Text("Paquete Android (opcional)") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = { AppConfig.add(context, appName, appPkg); appRules = AppConfig.rules(context); appName = ""; appPkg = "" }) { Text("Agregar aplicación") }

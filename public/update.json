@@ -1,6 +1,6 @@
 {
-  "versionCode": 2007,
-  "versionName": "2.7",
-  "apkUrl": "https://github.com/OscarSonco/miSecretaria/releases/download/v2.7/miSecretariaV2.7-debug.apk",
-  "notes": "Actualización remota: botón para buscar e instalar nuevas versiones sin Play Store."
+  "versionCode": 2008,
+  "versionName": "2.8",
+  "apkUrl": "https://github.com/OscarSonco/miSecretaria/releases/download/v2.8/miSecretariaV2.8-debug.apk",
+  "notes": "Prueba del sistema de actualización remota."
 }

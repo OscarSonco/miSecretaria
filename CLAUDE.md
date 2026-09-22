@@ -110,6 +110,41 @@ que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
 14. Exportar historial a CSV (además de .txt).
 15. Backup/restauración de configuración en JSON.
 16. Filtro del historial por billetera/aplicación en la pantalla principal.
+17. **Actualización remota sin cuentas** (v2.7): botón "Buscar actualización" en
+    Configuración. Consulta `https://misecretaria-67c62.web.app/update.json` (Firebase
+    Hosting, gratis) y si hay versión nueva, descarga el APK con `DownloadManager` y lanza
+    la instalación. El **APK se aloja en GitHub Releases**
+    (`https://github.com/OscarSonco/miSecretaria/releases`), NO en Firebase Hosting: el plan
+    gratuito (Spark) bloquea por completo archivos `.apk/.exe/.dll/.ipa` sin importar
+    permisos (ver `UpdateManager.kt`).
+
+## Firebase / GitHub — datos del proyecto
+
+- **Proyecto Firebase:** `misecretaria-67c62` (cuenta `oscarorlandosonco@gmail.com`)
+- **google-services.json:** en `app/google-services.json` (ya commiteado)
+- **Firebase Hosting:** carpeta `public/` → sirve `update.json` únicamente (el APK NO va
+  acá, ver arriba). Desplegar con `firebase deploy --only hosting`. Los archivos en
+  `public/` deben quedar con permisos `644` (no ejecutables) o Firebase Hosting rechaza el
+  deploy incluso para archivos permitidos.
+- **Firebase App Distribution:** configurado (`appDistributionUploadDebug`) pero **NO es
+  el canal para usuarios finales** — requiere que cada tester tenga cuenta de Google y
+  acepte una invitación. Sirve solo para testers internos/beta, no para el público general.
+  Login vía `firebase login --no-localhost` (headless, pega la URL en cualquier navegador).
+- **Repositorio GitHub:** `https://github.com/OscarSonco/miSecretaria` (renombrado desde
+  `ScoSecretaria`). Autenticación por HTTPS requiere un **Personal Access Token** (no la
+  password de la cuenta, GitHub la bloqueó en 2021) — generar en
+  https://github.com/settings/tokens con permiso `repo`, y usarlo como "password" al hacer
+  `git push`. Con `git config --global credential.helper store` se guarda tras la primera vez.
+- **Flujo de release completo** (cada versión nueva):
+  1. Compilar: `./gradlew assembleDebug` → copiar a `Releases/miSecretariaV(x.x)-debug.apk`.
+  2. Subir el APK como asset de un nuevo **GitHub Release** (tag `v(x.x)`) — al crear el
+     release en la web, adjuntar el archivo en la zona **"Attach binaries"** (no en el
+     cuadro de texto de notas, que solo acepta imágenes/documentos).
+  3. Actualizar `public/update.json` (versionCode, versionName, apkUrl al asset de GitHub,
+     notas) y `chmod 644 public/update.json`.
+  4. `firebase deploy --only hosting`.
+  5. `git add -A && git commit && git push`.
+
 
 ## Pendiente / limitaciones conocidas
 
