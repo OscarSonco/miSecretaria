@@ -149,6 +149,8 @@ enum class PickerTarget { WALLET, APP }
     var serviceOn by remember { mutableStateOf(DisplayPreferences.serviceEnabled(context)) }
     var filter by remember { mutableStateOf<String?>(null) }
     var serviceAlive by remember { mutableStateOf(true) }
+    var editingAdId by remember { mutableStateOf<String?>(null) }
+    var draftPhrase by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         WalletNotificationListener.requestServiceRebind(context)
         while (true) {
@@ -180,7 +182,19 @@ enum class PickerTarget { WALLET, APP }
             }
             Spacer(Modifier.height(6.dp))
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(filtered, key = { it.id }) { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text("${it.wallet} · ${it.receivedAt}"); Text(it.message) } } } }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(filtered, key = { it.id }) { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+            Text("${item.wallet} · ${item.receivedAt}"); Text(item.message)
+            if (editingAdId == item.id) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(draftPhrase, { draftPhrase = it }, label = { Text("Frase para bloquear futuros similares") }, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { AdFilterConfig.add(context, item.wallet, draftPhrase); editingAdId = null }) { Text("Bloquear") }
+                    TextButton(onClick = { editingAdId = null }) { Text("Cancelar") }
+                }
+            } else {
+                TextButton(onClick = { editingAdId = item.id; draftPhrase = item.message.take(60) }) { Text("🚫 Marcar como publicidad") }
+            }
+        } } } }
     } }
 }
 
@@ -224,6 +238,7 @@ enum class PickerTarget { WALLET, APP }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateChecked by remember { mutableStateOf(false) }
+    var blockedPhrases by remember { mutableStateOf(AdFilterConfig.list(context)) }
     val scope = rememberCoroutineScope()
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Configuración", style = MaterialTheme.typography.headlineSmall) }
@@ -298,6 +313,16 @@ enum class PickerTarget { WALLET, APP }
         OutlinedTextField(appName, { appName = it }, label = { Text("Nombre de la aplicación") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(appPkg, { appPkg = it }, label = { Text("Paquete Android (opcional)") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = { AppConfig.add(context, appName, appPkg); appRules = AppConfig.rules(context); appName = ""; appPkg = "" }) { Text("Agregar aplicación") }
+        Spacer(Modifier.height(20.dp))
+        Text("Publicidad bloqueada", style = MaterialTheme.typography.titleMedium)
+        if (blockedPhrases.isEmpty()) {
+            Text("Ninguna todavía — desde el Historial puedes marcar un mensaje como publicidad.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            blockedPhrases.forEach { bp -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) { Text(bp.wallet, style = MaterialTheme.typography.bodySmall); Text(bp.phrase, style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = { AdFilterConfig.remove(context, bp.wallet, bp.phrase); blockedPhrases = AdFilterConfig.list(context) }) { Text("Quitar") }
+            } }
+        }
         Spacer(Modifier.height(24.dp))
     } }
 }

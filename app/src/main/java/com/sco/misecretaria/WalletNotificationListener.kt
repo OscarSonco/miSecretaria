@@ -67,7 +67,8 @@ class WalletNotificationListener : NotificationListenerService() {
         if (message.isBlank()) return
         val item = WalletNotification(UUID.randomUUID().toString(), label, title, message, WalletNotificationStore.now(), kind)
         WalletNotificationStore.add(item)
-        val isPromo = kind == NotificationKind.PAYMENT && !PaymentMessageDetector.looksLikePayment(message)
+        val isPromo = (kind == NotificationKind.PAYMENT && !PaymentMessageDetector.looksLikePayment(message)) ||
+            AdFilterConfig.isBlocked(this, label, message)
         ScoSecretariaLogger.info(this, "Notificación aceptada de $label (${kind.name}${if (isPromo) ", publicidad: silenciada" else ""})")
         if (!isPromo) {
             WalletNotificationNotifier.show(this, item)

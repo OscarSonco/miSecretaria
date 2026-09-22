@@ -2,6 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 export JAVA_HOME=/home/beelinkser5max/Descargas/android-studio/jbr
+# El lanzador .desktop no carga .bashrc/nvm, así que forzamos el PATH con las rutas reales.
+export PATH="/home/beelinkser5max/.nvm/versions/node/v22.23.2/bin:/usr/bin:$PATH"
 
 VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
 VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)

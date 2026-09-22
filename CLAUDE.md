@@ -17,7 +17,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2004`, `versionName="2.4"` (ver `app/build.gradle.kts`)
+- **Versión actual:** `versionCode=2010`, `versionName="2.10"` (ver `app/build.gradle.kts`)
 - **Esquema de versionCode:** `major*1000 + minor` (ej. 2.1 → 2001, 2.700 → 2700), para poder
   hacer muchos builds de prueba (2.1, 2.2, ... 2.700) antes de saltar a la siguiente versión
   entera (3.0) cuando quede estable.
@@ -73,12 +73,31 @@ que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
 - `SpeechEngine.kt` — motor TTS. Intenta usar una voz real del teléfono marcada
   masculina/femenina (`tts.voices`, busca `"male"`/`"female"` en el nombre); si no hay,
   usa pitch/rate de `VoiceProfile` como respaldo. `speakText()` lee texto libre troceando
-  por el límite de caracteres del motor (pantalla "Leer").
+  por el límite de caracteres del motor (pantalla "Leer"). Soporta `pause()`/`resume()` a
+  nivel de trozo (Android TTS no tiene pausa real nativa, así que no es exacto palabra por
+  palabra, pero funciona bien para textos largos).
 - `AmountSpeech.kt` — parseo de montos ("Bs3.29", "Bs1.2", "Bs. 1.20"...) a frase hablada
   ("3 Bolivianos con 29 centavos"). Regla importante: un solo dígito decimal se rellena a la
   derecha (`.2` → 20 centavos, no 2). Usa "Un" en vez de "1" para concordancia de género.
 - `NotificationSpeech.kt` — frase hablada para apps "generales" (no billeteras);
   reemplaza URLs por "hay un link".
+- `PaymentMessageDetector.kt` — distingue pago real de publicidad de la billetera
+  (heurística: requiere monto + frase típica de pago como "recibiste"/"envió"/"yapeo").
+  La publicidad se guarda en Historial y en el log, pero no se lee ni dispara overlay,
+  pantalla completa, ni la notificación superior del sistema.
+- `AdFilterConfig.kt` — filtro de publicidad **manual** (v2.10), complementa al automático
+  de arriba: desde una tarjeta del Historial, el usuario marca "🚫 Marcar como publicidad"
+  con una frase (editable, pre-rellenada con los primeros 60 caracteres del mensaje).
+  Guarda `(billetera, frase)` y cualquier mensaje futuro de esa misma billetera que
+  contenga esa frase queda silenciado igual que la publicidad automática. Se administra
+  (ver/quitar) en Configuración → "Publicidad bloqueada".
+- `InstalledAppsProvider.kt` — lista las apps instaladas con ícono de lanzador (usa el
+  `<queries>` del manifest para verlas todas en Android 11+, sin permisos especiales).
+  Alimenta la pantalla "Elegir desde apps instaladas" (botón en Billeteras y en Apps
+  Generales dentro de Configuración) para agregar billeteras/apps sin escribir el
+  nombre de paquete a mano.
+- `UpdateManager.kt` — actualización remota: consulta `update.json` (Firebase Hosting),
+  descarga con `DownloadManager` e instala. Ver sección "Firebase / GitHub" abajo.
 - `WalletNotificationStore.kt` — historial persistido (JSON en `SharedPreferences`),
   export a texto plano y CSV.
 - `BackupManager.kt` — backup/restauración en JSON de: preferencias, billeteras, apps
@@ -117,33 +136,70 @@ que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
     (`https://github.com/OscarSonco/miSecretaria/releases`), NO en Firebase Hosting: el plan
     gratuito (Spark) bloquea por completo archivos `.apk/.exe/.dll/.ipa` sin importar
     permisos (ver `UpdateManager.kt`).
+18. **Selector de apps instaladas** (v2.9): botón "Elegir desde apps instaladas" en las
+    secciones de Billeteras y Apps Generales — evita escribir el nombre de paquete a mano.
+19. **Filtro de publicidad de billeteras** (v2.9): ver `PaymentMessageDetector.kt` arriba.
+20. **Compartir como archivo real** (v2.9): "Compartir Historial/CSV/Log" ahora manda un
+    adjunto vía `FileProvider`, no un bloque de texto pegado en el chat.
+21. **Pausa/Reanudar en pantalla "Leer"** (v2.9), más selector de voz Varón/Mujer ahí mismo
+    (usa la misma preferencia global de voz).
+22. **Publicación de releases automatizada**: `release.sh` + lanzador
+    `miSecretaria_Update.desktop` (doble clic) hacen todo el flujo de una sola vez: compila,
+    crea el GitHub Release con el APK adjunto (vía `gh` CLI, sin navegador), actualiza
+    `update.json`, despliega a Firebase Hosting, y hace commit+push. Ver sección siguiente.
+23. **Filtro de publicidad manual** (v2.10): botón "🚫 Marcar como publicidad" en cada
+    tarjeta del Historial, complementa al filtro automático (`AdFilterConfig.kt` arriba).
 
 ## Firebase / GitHub — datos del proyecto
 
 - **Proyecto Firebase:** `misecretaria-67c62` (cuenta `oscarorlandosonco@gmail.com`)
 - **google-services.json:** en `app/google-services.json` (ya commiteado)
 - **Firebase Hosting:** carpeta `public/` → sirve `update.json` únicamente (el APK NO va
-  acá, ver arriba). Desplegar con `firebase deploy --only hosting`. Los archivos en
-  `public/` deben quedar con permisos `644` (no ejecutables) o Firebase Hosting rechaza el
-  deploy incluso para archivos permitidos.
+  acá, ver arriba). Los archivos en `public/` deben quedar con permisos `644` (no
+  ejecutables) o Firebase Hosting rechaza el deploy incluso para archivos permitidos.
 - **Firebase App Distribution:** configurado (`appDistributionUploadDebug`) pero **NO es
   el canal para usuarios finales** — requiere que cada tester tenga cuenta de Google y
   acepte una invitación. Sirve solo para testers internos/beta, no para el público general.
-  Login vía `firebase login --no-localhost` (headless, pega la URL en cualquier navegador).
 - **Repositorio GitHub:** `https://github.com/OscarSonco/miSecretaria` (renombrado desde
   `ScoSecretaria`). Autenticación por HTTPS requiere un **Personal Access Token** (no la
-  password de la cuenta, GitHub la bloqueó en 2021) — generar en
-  https://github.com/settings/tokens con permiso `repo`, y usarlo como "password" al hacer
-  `git push`. Con `git config --global credential.helper store` se guarda tras la primera vez.
-- **Flujo de release completo** (cada versión nueva):
-  1. Compilar: `./gradlew assembleDebug` → copiar a `Releases/miSecretariaV(x.x)-debug.apk`.
-  2. Subir el APK como asset de un nuevo **GitHub Release** (tag `v(x.x)`) — al crear el
-     release en la web, adjuntar el archivo en la zona **"Attach binaries"** (no en el
-     cuadro de texto de notas, que solo acepta imágenes/documentos).
-  3. Actualizar `public/update.json` (versionCode, versionName, apkUrl al asset de GitHub,
-     notas) y `chmod 644 public/update.json`.
-  4. `firebase deploy --only hosting`.
-  5. `git add -A && git commit && git push`.
+  password de la cuenta, GitHub la bloqueó en 2021) — ya configurado con
+  `git config --global credential.helper store`.
+- **GitHub CLI (`gh`):** instalado y autenticado (`gh auth login`, cuenta `OscarSonco`).
+  Se usa en `release.sh` para crear el Release + subir el APK sin pasar por el navegador.
+
+## Flujo de release — el camino normal (recomendado)
+
+1. Se sube `versionCode`/`versionName` en `app/build.gradle.kts` y se hacen los cambios
+   de código de la nueva versión (esto lo hace Claude).
+2. El usuario hace **doble clic en `miSecretaria_Update.desktop`** (o corre
+   `./release.sh` a mano). Ese script:
+   - Lee versionName/versionCode directo de `app/build.gradle.kts` (no hace falta pasarle nada).
+   - Compila (`./gradlew assembleDebug`) y copia el APK a `Releases/`.
+   - Crea el GitHub Release (tag `v(x.x)`) con el APK adjunto, vía `gh release create`.
+   - Regenera `public/update.json` con la URL del asset recién publicado.
+   - Corre `firebase deploy --only hosting`.
+   - Hace `git add -A && git commit && git push`.
+3. Listo — cualquier usuario que abra la app y toque "Buscar actualización" ve la versión nueva.
+
+⚠️ **Nota de entorno:** los lanzadores `.desktop` no cargan `.bashrc`/`nvm`, así que
+`release.sh` fuerza el `PATH` a mano con las rutas reales de `firebase` y `gh` en esta
+máquina (`/home/beelinkser5max/.nvm/versions/node/v22.23.2/bin` y `/usr/bin`). Si el
+usuario reinstala Node/nvm o cambia de versión, hay que actualizar esa línea en `release.sh`.
+
+## Flujo de release — manual (si `release.sh` falla o se quiere paso a paso)
+
+```bash
+cd ~/Documents/miSecretaria
+./gradlew assembleDebug
+mkdir -p Releases public
+cp app/build/outputs/apk/debug/app-debug.apk Releases/miSecretariaV(x.x)-debug.apk
+gh release create v(x.x) Releases/miSecretariaV(x.x)-debug.apk --repo OscarSonco/miSecretaria --title "miSecretaria v(x.x)" --notes "..."
+# actualizar public/update.json a mano con versionCode/versionName/apkUrl/notes
+chmod 644 public/update.json
+firebase deploy --only hosting
+git add -A && git commit -m "Release v(x.x)" && git push
+```
+
 
 
 ## Pendiente / limitaciones conocidas
