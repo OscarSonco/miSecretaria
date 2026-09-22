@@ -38,7 +38,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(state: Bundle?) { super.onCreate(state); WalletNotificationStore.init(applicationContext); render() }
     override fun onResume() { super.onResume(); WalletNotificationListener.requestServiceRebind(this) }
     private fun render() { setContent { ScoSecretariaTheme { ScoSecretariaApp(this) } } }
-    fun share(name: String, text: String, mime: String = REPORT_MIME) = startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = mime; putExtra(Intent.EXTRA_SUBJECT, name); putExtra(Intent.EXTRA_TEXT, text); clipData = ClipData.newPlainText(name, text) }, "Compartir $name"))
+    fun share(name: String, text: String, mime: String = REPORT_MIME) {
+        runCatching {
+            val file = File(cacheDir, name)
+            file.writeText(text)
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Compartir $name"))
+        }.onFailure { ScoSecretariaLogger.error(this, "No se pudo compartir $name", it) }
+    }
     fun save(name: String, content: String, mime: String = REPORT_MIME) {
         pendingSaveText = content
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = mime; putExtra(Intent.EXTRA_TITLE, name) }, REQ_SAVE)
@@ -175,14 +187,24 @@ enum class PickerTarget { WALLET, APP }
 @Composable private fun ReadScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var text by remember { mutableStateOf("") }
+    var voiceProfile by remember { mutableStateOf(DisplayPreferences.voiceProfile(context)) }
+    var isPaused by remember { mutableStateOf(false) }
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Leer", style = MaterialTheme.typography.headlineSmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            VoiceProfile.entries.forEach { profile ->
+                FilterChip(selected = voiceProfile == profile, onClick = { voiceProfile = profile; DisplayPreferences.setVoiceProfile(context, profile) }, label = { Text(profile.label) })
+            }
+        }
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("Pega o escribe el texto a leer") }, modifier = Modifier.fillMaxWidth().weight(1f))
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { SpeechEngine.speakText(context, text) }, enabled = text.isNotBlank()) { Text("Leer en voz alta") }
-            OutlinedButton(onClick = { SpeechEngine.stop() }) { Text("Detener") }
+            Button(onClick = { isPaused = false; SpeechEngine.speakText(context, text) }, enabled = text.isNotBlank()) { Text("Leer en voz alta") }
+            OutlinedButton(onClick = {
+                if (isPaused) { SpeechEngine.resume(context); isPaused = false } else { SpeechEngine.pause(); isPaused = true }
+            }) { Text(if (isPaused) "Reanudar" else "Pausa") }
+            OutlinedButton(onClick = { SpeechEngine.stop(); isPaused = false }) { Text("Detener") }
         }
     } }
 }

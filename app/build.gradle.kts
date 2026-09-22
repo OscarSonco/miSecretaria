@@ -16,8 +16,8 @@ android {
         minSdk = 26
         targetSdk = 37
         // Esquema: versionCode = major*1000 + minor (soporta minor hasta 999, ej. 2.700 -> 2700)
-        versionCode = 2008
-        versionName = "2.8"
+        versionCode = 2009
+        versionName = "2.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

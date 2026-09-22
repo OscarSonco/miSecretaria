@@ -67,10 +67,13 @@ class WalletNotificationListener : NotificationListenerService() {
         if (message.isBlank()) return
         val item = WalletNotification(UUID.randomUUID().toString(), label, title, message, WalletNotificationStore.now(), kind)
         WalletNotificationStore.add(item)
-        ScoSecretariaLogger.info(this, "Notificación aceptada de $label (${kind.name})")
-        WalletNotificationNotifier.show(this, item)
-        if (kind == NotificationKind.PAYMENT && DisplayPreferences.alertEnabled(this) && !DisplayPreferences.fullScreenEnabled(this)) WalletOverlay.show(this, item)
-        if (DisplayPreferences.speechEnabled(this)) SpeechEngine.speak(this, item)
+        val isPromo = kind == NotificationKind.PAYMENT && !PaymentMessageDetector.looksLikePayment(message)
+        ScoSecretariaLogger.info(this, "Notificación aceptada de $label (${kind.name}${if (isPromo) ", publicidad: silenciada" else ""})")
+        if (!isPromo) {
+            WalletNotificationNotifier.show(this, item)
+            if (kind == NotificationKind.PAYMENT && DisplayPreferences.alertEnabled(this) && !DisplayPreferences.fullScreenEnabled(this)) WalletOverlay.show(this, item)
+            if (DisplayPreferences.speechEnabled(this)) SpeechEngine.speak(this, item)
+        }
     }
 
     /** Último mensaje real de una notificación de chat (MessagingStyle o líneas expandidas). */
