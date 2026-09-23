@@ -2,6 +2,185 @@
 
 Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Claude.
 
+## ESTADO ACTUAL (actualizado 2026-09-23, tras compilar y probar en el teléfono)
+
+Código en disco = v2.12 (`versionCode=2012`) **con cambios sin publicar** — falta que el
+usuario corra el release (ver Paso 4). Regla de trabajo con el usuario: ADB es SOLO para diagnóstico
+técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log interno, `content query` sobre
+MediaStore) — **nunca para instalar**; el usuario instala siempre por su cuenta, vía "Buscar
+actualización" en la app. `CLAUDE.md` (memoria técnica) y `README.md` (manual de uso) se
+actualizan en cada cambio, no solo al cerrar una tanda.
+
+Esta tanda (Paso 1 + Paso 2 fase 1) SÍ se compiló (`./gradlew assembleDebug` exitoso) y se
+instaló/probó una vez en el teléfono del usuario (única instalación por ADB, ya no se repetirá).
+Verificado EN VIVO vía el log interno del teléfono (`run-as ... cat files/miSecretaria_debug.log`):
+- ✅ **Paso 1 confirmado funcionando de verdad:** tras la corrección, el log muestra
+  `Notificación aceptada de WhatsApp (GENERAL)` para mensajes reales (11:33:52 y 11:46:05),
+  algo que antes de la corrección no pasaba. Hubo una racha de "Sin coincidencia: pkg=com.whatsapp"
+  entre las 09:48 y las 11:24 (incluyendo una ya con el código nuevo instalado, a las 11:24:48)
+  que dejó de repetirse justo cuando el usuario terminó de editar Billeteras/Apps en
+  Configuración — no se pudo aislar una causa de código (la lógica de `detect()` no depende del
+  contenido del mensaje cuando la regla tiene `packageId`), así que se trata como un estado
+  transitorio ya superado, no como un bug pendiente. El grupo de WhatsApp usado en la prueba
+  ("[ 🤖 El Desconocido 🤣 ]") es la SEGUNDA cuenta del usuario dentro de la misma instalación de
+  WhatsApp (función nativa de WhatsApp de dos números en una app) — mismo `packageName`
+  (`com.whatsapp`), así que la regla los cubre a ambos por igual.
+- ✅ **Fila nueva "Acceso a medios" en Configuración probada en pantalla** — se detectó y
+  corrigió un bug real de layout: la etiqueta larga no dejaba espacio al botón "Habilitar"
+  (ya arreglado con `Modifier.weight(1f)` en el `Text` de `PermissionRow`).
+- ⚠️ **Pendiente de probar:** la detección real de medios de WhatsApp (Paso 2, 2a–2c) necesita
+  el permiso de medios concedido (no se concedió aún — la app instalada en el teléfono es de
+  antes del arreglo de layout) y que llegue una foto/audio/video real por WhatsApp.
+- 🔍 **Riesgo del Paso 2 validado por consulta directa a MediaStore (sin tocar la app):**
+  fotos y videos de WhatsApp SÍ están indexados y recientes (última foto: hoy 07:09, último
+  video: ayer 10:47) — la ruta real en este teléfono es
+  `Android/media/com.whatsapp/WhatsApp/accounts/<id>/Media/...` (contiene "WhatsApp" igual, el
+  filtro de ruta sigue sirviendo) y también aparece contenido en `Movies/WhatsApp/` para algunos
+  videos. ⚠️ El **audio de nota de voz NO tiene entradas recientes** en `MediaStore.Audio` (la
+  última real es del 14 de septiembre, 9 días antes de esta prueba) — puede ser que el usuario
+  simplemente no haya recibido audios nuevos, o que WhatsApp/este Android no indexe notas de voz
+  en el "Audio" de MediaStore de forma confiable. **Falta confirmar mandando una nota de voz de
+  prueba ahora mismo y volviendo a consultar MediaStore** — esto decide si vale la pena construir
+  2d-2h (cola de reproducción) para audio, o si hay que buscar una vía alternativa solo para ese tipo.
+
+| Pedido del usuario | Estado |
+|---|---|
+| Nombre de sucursal aleatorio si no se personaliza | ✅ en código (`DisplayPreferences.deviceLabel`) |
+| Renombrar sucursal desde el bot (`/renombrar`) | ✅ en código (`TelegramSyncWorker`) |
+| Mensajes desde el bot a TODOS / sucursal (`/notificar`) | ✅ en código |
+| Botón Atrás de Android en Configuración | ✅ `BackHandler` + `enableOnBackInvokedCallback` en manifest (sin probar en equipo) |
+| Listas con ícono + nombre + packageId; sin cuadros de texto manuales | ✅ en código (sin probar en equipo) |
+| Monto `Bs 2,392.69` mal leído | ✅ código corregido en `AmountSpeech`; sin probar |
+| Ícono nuevo `miSecretaria.jpg` | ✅ en código (ítem 27): adaptativo + legacy regenerados sin tablero; falta ver en el teléfono tras compilar |
+| YASTA y "Bille" no procesan notificaciones | ✅ resuelto por el usuario: re-agregó las billeteras desde el selector de apps instaladas (ahora con `packageId` real). Quedó un rastro "YOLO" viejo (vacío) duplicado con el nuevo "Yolo Pago" — ver fila siguiente |
+| No había forma de borrar una billetera/app mal agregada, solo activar/desactivar | ✅ en código: `WalletConfig.remove`/`AppConfig.remove` + botón "Quitar" junto al switch de cada regla en Configuración (2026-09-23, sin probar en equipo aún) |
+| Audio de WhatsApp en cola / video como audio | 🔄 Paso 2 fase 1 (2a-2c) ✅ en código y compilado: permisos de medios + fila en Configuración, detección de notificación de medio nuevo de WhatsApp, búsqueda en `MediaStore` solo de archivos recién agregados (ventana de tiempo, sin recorrer histórico), solo LOGUEA lo encontrado (`WhatsAppMediaScanner.kt`). Falta probar en el teléfono con un medio real y luego 2d-2h (cola de reproducción, copia antes de borrado, reenvío a Telegram, checklist) |
+| Guardar copia de medios borrados + reenviar al bot + checklist de tipos | ❌ no implementado; depende de validar 2a-2c en el teléfono primero (ver Paso 2, 2d-2h) |
+| Subir versión (2.12) | ✅ hecho en `app/build.gradle.kts` (2026-09-23); falta que el usuario corra el release (`.desktop`/`release.sh`) |
+| Limpieza del repo (scripts/archivos huérfanos) | ✅ hecho 2026-09-23: ver "Limpieza del repo" más abajo |
+| Configurar bot de Telegram | 🔄 el usuario creó el bot (`t.me/miSecretariaPerfecta_bot`) y obtuvo el token con BotFather; Claude obtuvo el Chat ID (`8159568738`) consultando `getUpdates` una sola vez (uso puntual, no guardado en ningún archivo). **El token NO se guarda en CLAUDE.md/README/repo por seguridad** — el usuario debe pegarlo él mismo en Configuración → Telegram → "Token del bot", junto con el Chat ID. Falta que el usuario guarde y pruebe "Enviar mensaje de prueba" |
+| Un solo bot para todas las sucursales (decisión del usuario, no uno por sucursal) | ⏳ decisión tomada 2026-09-23; falta implementar el rediseño del Paso 3 (ver abajo) para que `/notificar TODOS` funcione con varios teléfonos sin que el primero que consulte "se coma" los mensajes de los demás |
+
+Próximo paso: seguir el plan de la sección **"PASOS SIGUIENTES"** (justo debajo). Ya hecho:
+✔ ícono adaptativo. Decidido: ✔ medios de WhatsApp por la opción b (ver Paso 2).
+Compilar SIEMPRE desde el Debian (no desde `Z:\`).
+
+## PASOS SIGUIENTES (plan acordado el 2026-09-23 — LEER PRIMERO si se corta la sesión)
+
+**Decisión del usuario (2026-09-23):** para audio/video/fotos de WhatsApp se elige la
+**opción b — leer la carpeta/base de medios de WhatsApp**, y SOLO de archivos **nuevos**,
+disparada por las notificaciones nuevas que lleguen. NO se escanean ni importan medios
+antiguos. (Las opciones descartadas por ahora: a) Accessibility Service, c) limitar el
+alcance a la miniatura.)
+
+Leyenda: ⬜ pendiente · 🔄 en curso · ✅ hecho. **Actualizar este bloque al terminar cada paso.**
+
+✅ **Paso 0 — Red de seguridad.** El WIP de la tanda 2.11 (Telegram/ícono/BackHandler/etc.)
+seguía sin commitear en `~/Documents/miSecretaria`; se replicó también a este worktree y
+ambas copias en disco coinciden. Sigue sin commitear a propósito — el usuario decide cuándo
+(ver flujo de release normal).
+
+✅ **Paso 1 — Corregir la detección (Claude).** Hecho y compilado.
+- `WalletConfig.detect`/`AppConfig.detect` ahora reciben `packageName`, `title`, `text` por
+  separado (ya no un `source` concatenado). Si la regla tiene `packageId` → coincidencia
+  EXACTA de paquete (nada de substring). Si no tiene `packageId` → coincide el *nombre* como
+  palabra completa (regex `\bnombre\b`) en título+texto, así "pizzas" ya NO coincide con "ZAS".
+  Único call site actualizado en `WalletNotificationListener.onNotificationPosted`.
+- `WalletConfig.defaults` (YAPE/YOLO/YASTA/AlToke con `packageId=""`) se deja igual a
+  propósito — sigue pendiente que el usuario las re-agregue con el selector de apps.
+
+🔄 **Paso 2 — Medios de WhatsApp, opción b, fase 1: imagen/audio/video NUEVOS (Claude).**
+Fase 1 (2a–2c, solo LOGUEA lo que encuentra) hecha y compilada; **falta probarla en el
+teléfono con un medio real** antes de construir cola/reenvío (2d–2h).
+- 2a. ✅ Permisos en `AndroidManifest.xml`: `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`,
+  `READ_MEDIA_AUDIO` (Android 13+) y `READ_EXTERNAL_STORAGE` con `maxSdkVersion="32"`.
+  Fila nueva "Acceso a medios (fotos/audio/video de WhatsApp)" en Configuración
+  (`MainActivity.requestMediaPermissions()`, vía `ActivityResultContracts.RequestMultiplePermissions`).
+  Bug encontrado y corregido en el mismo paso: la etiqueta larga de esa fila no dejaba
+  espacio al botón "Habilitar" (`PermissionRow` sin `weight` en el `Text`) — ya arreglado.
+- 2b. ✅ Disparo en `WalletNotificationListener.onNotificationPosted`: si el paquete es
+  WhatsApp (`com.whatsapp`/`com.whatsapp.w4b`) y `WhatsAppMediaScanner.looksLikeNewMedia`
+  detecta palabras de medio (foto/photo/imagen/video/audio/mensaje de voz/voice message/nota
+  de voz, en español e inglés; excluye a propósito "sticker"/"gif" — pedido explícito del
+  usuario de no tratarlos como medio), se dispara la búsqueda con `statusBarNotification.postTime`.
+- 2c. ✅ `WhatsAppMediaScanner.findNewMedia`: consulta `MediaStore` (Images/Video/Audio) con
+  `DATE_ADDED` dentro de una ventana de ±30s/15s alrededor de `postTime`, filtra por
+  `RELATIVE_PATH` (Android 10+) o `DATA` (Android 9-) que contenga "WhatsApp", y descarta
+  archivos ya vistos (`SharedPreferences` con set de URIs, tope 200) para no repetir ni
+  recorrer nunca el histórico completo. Por ahora solo llama a `ScoSecretariaLogger` con lo
+  que encuentra — no reproduce ni copia ni reenvía nada todavía.
+- 2d. Copia inmediata a almacenamiento propio (`filesDir/media/`), para conservarla si el
+  remitente la borra ("eliminar para todos").
+- 2e. Reproducción en cola: audio (.opus) con `MediaPlayer`/Media3 por orden de llegada;
+  video "como audio" (solo la pista de audio); coordinar con el TTS para no pisar la voz que
+  lee el texto; botones Detener/Saltar.
+- 2f. Reenvío al bot de Telegram: generalizar `TelegramClient.sendDocument` (el multipart ya
+  existe) o añadir `sendVoice/sendAudio/sendVideo/sendPhoto`. Límite de 50 MB por archivo para bots.
+- 2g. Checklist en Configuración de qué tipos guardar/reenviar/reproducir (imagen, audio,
+  video, documento): nuevo `MediaConfig.kt` o claves en `DisplayPreferences`.
+- 2h. Modelo/Store: `WalletNotification.mediaPath` hoy solo guarda la miniatura; agregar
+  `mediaType` de forma compatible (`optString` en `WalletNotificationStore.load`) y borrar
+  los archivos de `filesDir/media` al recortar el historial (100) y en `clearHistory`
+  (hoy nunca se borran).
+- Fuera de la fase 1: documentos (PDF, etc.) — probablemente requieren acceso amplio a
+  almacenamiento; evaluarlo después.
+- **RIESGOS:** (1) ✅ **validado por consulta directa a `content query` sobre MediaStore
+  (2026-09-23, sin tocar la app):** fotos y videos de WhatsApp SÍ están indexados y recientes
+  en este teléfono (ruta real:
+  `Android/media/com.whatsapp/WhatsApp/accounts/<id>/Media/...`, también `Movies/WhatsApp/`
+  para algunos videos — ambas contienen "WhatsApp", el filtro de ruta sigue sirviendo).
+  ⚠️ **Audio (notas de voz) SIN validar todavía:** la última nota de voz indexada en
+  `MediaStore.Audio` es de 9 días antes de la prueba — puede ser que el usuario no haya
+  recibido audios nuevos, o que no se indexen de forma confiable. Falta mandar una nota de voz
+  de prueba y volver a consultar antes de invertir en 2e (cola de reproducción de audio).
+  (2) Si WhatsApp tiene la descarga automática desactivada, el archivo no existe hasta que el
+  usuario lo abra — sin validar. (3) Plan B de la opción b (sin verificar):
+  `ACTION_OPEN_DOCUMENT_TREE` sobre `Android/media/com.whatsapp/WhatsApp/Media` con permiso
+  persistente, solo si (1)/(2) fallan para algún tipo de archivo.
+
+✅ **Paso 3 — Telegram con varios teléfonos (2026-09-23): decisión del usuario = UN SOLO bot
+para todas las sucursales** (no uno por sucursal, "sería problemático"). Rediseño hecho y
+compilado: `TelegramSyncWorker`/`TelegramConfig` ya NO confirman el offset ante Telegram
+(antes `getUpdates` con offset por dispositivo, pero la cola de un bot es única: el primer
+teléfono que consultaba "se comía" los mensajes y los demás nunca veían `/notificar TODOS` ni
+`/renombrar`). Ahora cada ciclo pide `offset=0` (nunca se confirma nada) y cada dispositivo
+filtra LOCALMENTE los `update_id` ya procesados (`TelegramConfig.isUpdateProcessed`/
+`markUpdateProcessed`, tope 300) — así todos los teléfonos ven el mismo lote de comandos.
+Falta probar con el bot real del usuario (`t.me/miSecretariaPerfecta_bot`, Chat ID
+`8159568738` — token conocido solo por el usuario, no guardado aquí) una vez que guarde y
+presione "Enviar mensaje de prueba" en Configuración. Alternativa descartada por el usuario:
+un bot (token) por sucursal ("sería problemático").
+
+🔄 **Paso 4 — Cerrar la tanda (Claude + usuario).** `versionCode=2012`/`versionName="2.12"`
+✅ ya subido en `app/build.gradle.kts` y compila limpio (2026-09-23). 2.11 nunca se compiló ni
+publicó — queda absorbida en 2.12, no se publica por separado. Ya NO se crean scripts
+`-instalar.sh` por versión (ver "Cómo compilar e instalar"). Falta:
+1. El usuario prueba en el teléfono lo que sigue sin verificar en vivo: permiso de medios +
+   detección real de WhatsApp (Paso 2), guardar/probar el bot de Telegram (Paso 3).
+2. Checklist rápido: Atrás físico (Configuración/Leer/selector), íconos y paquetes en las
+   listas, `Bs 2,392.69`, ícono nuevo, botón "Quitar" en Billeteras/Apps, `/renombrar`,
+   `/notificar`.
+3. El usuario presiona `miSecretaria_Update.desktop` (o corre `./release.sh`) para publicar.
+
+### Hallazgos de la verificación del 2026-09-23 (lectura estática del código)
+- **Confirmado en código:** `versionCode=2011`; sucursal aleatoria (`MS-XXXXXX`);
+  `/notificar` y `/renombrar`; `BackHandler` en SETTINGS/READ/PICK + flag en el manifest;
+  listas con `AppIcon` + nombre + `packageId` (rojo si vacío) sin campos manuales;
+  `AmountSpeech.parseAmount` (`2,392.69` → 2392 Bs + 69 ctvs); ícono adaptativo →
+  `@mipmap/ic_launcher_foreground`, fondo `#F6E7B4`, PNG en las 5 densidades, sin referencias
+  colgando al avatar viejo. Medios: solo miniatura (`EXTRA_PICTURE`); no hay Accessibility
+  Service, ni permisos de medios, ni `sendPhoto/sendAudio/sendVideo`.
+- **Estado de compilación:** el último APK en `app/build/outputs` es 2.10 (`versionCode` 2010)
+  y el último commit del log es "Release v2.10".
+- **Discrepancias con lo que decía este .md antes:** los `packageId` vacíos no son solo YASTA
+  (ver Paso 1); falsos positivos por nombre (Paso 1); limitación de Telegram con varios
+  teléfonos (Paso 3); miniaturas nunca borradas (Paso 2h).
+- **Archivos NO leídos en esa verificación:** `SpeechEngine`, `PaymentMessageDetector`,
+  `AdFilterConfig`, `BackupManager`, `UpdateManager`, `WalletOverlay`,
+  `WalletNotificationNotifier`, `PaymentAlertActivity`.
+- El `.git` tiene `worktrees` (`oscarsonco-*`) y `refs/copilot`: otras sesiones/herramientas
+  pudieron tocar el repo; mirar `git status` antes de seguir.
+
 ## Qué es
 
 App Android nativa (Kotlin + Jetpack Compose) que escucha las notificaciones del teléfono
@@ -17,7 +196,12 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2010`, `versionName="2.10"` (ver `app/build.gradle.kts`)
+- **Versión actual:** `versionCode=2012`, `versionName="2.12"` (ver `app/build.gradle.kts`,
+  subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
+  presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
+  de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
+  medios + detección real de foto/audio/video de WhatsApp (Paso 2), y guardar/probar el bot de
+  Telegram en Configuración (Paso 3).
 - **Esquema de versionCode:** `major*1000 + minor` (ej. 2.1 → 2001, 2.700 → 2700), para poder
   hacer muchos builds de prueba (2.1, 2.2, ... 2.700) antes de saltar a la siguiente versión
   entera (3.0) cuando quede estable.
@@ -26,38 +210,57 @@ guardar todo en un historial dentro de la app.
 
 ## Cómo compilar e instalar
 
-Cada versión tiene su propio script `miSecretariaV(x.x)-instalar.sh` en la raíz del proyecto,
-que compila, copia el APK a `Releases/miSecretariaV(x.x)-debug.apk` y lo instala por ADB:
+**Descontinuado (2026-09-23):** ya NO se usan scripts `miSecretariaV(x.x)-instalar.sh` por
+versión (compilaban e instalaban por ADB). El usuario instala siempre desde la app misma
+("Buscar actualización"), y ADB queda solo para diagnóstico técnico de Claude — nunca para
+instalar (ver [[feedback-workflow-cadence]] en memoria). Se borraron todos los `.sh` viejos
+(V2.2 a V2.11) del repo; `release.sh` nunca dependió de ellos.
+
+Para compilar y solo verificar que el código anda bien (sin instalar nada):
 
 ```bash
 cd ~/Documents/miSecretaria
-chmod +x miSecretariaV2.4-instalar.sh
-./gradlew clean --no-configuration-cache
-rm -rf app/build .kotlin
-./gradlew assembleDebug --stacktrace --no-configuration-cache --rerun-tasks
-./miSecretariaV2.4-instalar.sh
-adb shell dumpsys package com.sco.misecretaria | grep -E "versionName|versionCode"
+export JAVA_HOME=/home/beelinkser5max/Descargas/android-studio/jbr
+./gradlew assembleDebug --no-configuration-cache
 ```
 
-Al crear una versión nueva: subir `versionCode`/`versionName` en `app/build.gradle.kts`, y
-crear el siguiente `miSecretariaV(x.x)-instalar.sh` (copiar el anterior y cambiar el número).
-**No hace falta tocar strings de versión a mano en el código** — todo pasa por `AppInfo.kt`,
-que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
+Si algo se comporta raro (build fantasma, permission denied persistente):
+`pkill -f gradle`, borrar `.gradle`/`app/build`/`.kotlin`, reintentar con
+`--no-configuration-cache --rerun-tasks`.
+
+Al crear una versión nueva: solo hay que subir `versionCode`/`versionName` en
+`app/build.gradle.kts` (esquema arriba). **No hace falta tocar strings de versión a mano en el
+código** — todo pasa por `AppInfo.kt`, que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`. El
+resto (compilar, publicar en GitHub Releases, actualizar `update.json`, desplegar Firebase
+Hosting, commit+push) lo hace `release.sh` / `miSecretaria_Update.desktop` — ver "Flujo de
+release" más abajo.
 
 ## Mapa de archivos (app/src/main/java/com/sco/misecretaria/)
 
-- `MainActivity.kt` — UI Compose completa: navegación (Home/Configuración/Leer), historial
-  con filtro por billetera/app, botón Encendido/Apagado, indicador de estado del servicio,
-  guardar/compartir (historial .txt, .csv, log, backup .json), compartir APK, pantalla "Leer"
-  (texto libre → voz).
+- `MainActivity.kt` — UI Compose completa: navegación (Home/Configuración/Leer/selector de
+  apps), historial con filtro por billetera/app y miniaturas (`ThumbnailImage`) cuando hay
+  `mediaPath`, botón Encendido/Apagado, indicador de estado del servicio, guardar/compartir
+  (historial .txt, .csv, log, backup .json), compartir APK, pantalla "Leer" (texto libre →
+  voz, con Pausa/Reanudar y selector Varón/Mujer). Todas las pantallas menos Home tienen
+  `BackHandler` para que el botón atrás de Android funcione igual que "Volver". Las listas
+  de Billeteras/Apps muestran ícono real (`AppIcon`, vía `packageManager.getApplicationIcon`)
+  + nombre + `packageId` (en rojo si está vacío — eso fue justo el bug de YASTA, ver abajo).
+  Ya NO hay cuadros de texto manuales para agregar billetera/app: el único camino es el
+  botón "Agregar Billetera"/"Agregar Aplicación" → abre `InstalledAppsScreen`.
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,
   el "3 mensajes nuevos" de WhatsApp) y extrae el último mensaje real vía `MessagingStyle`.
-  Actualiza el "heartbeat" (`DisplayPreferences.touchHeartbeat`) en cada evento, para que la
-  Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)` (llamado
-  desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener si Android
-  lo mató.
+  **Ignora notificaciones "revividas"** al reconectar (más de 2 min de antigüedad según
+  `statusBarNotification.postTime` → se descartan sin registrar nada; antes esto causaba
+  un chorro de "notificaciones viejas" al reiniciar el servicio). Intenta guardar una
+  **miniatura de baja resolución** (`saveThumbnailIfAny`, vía `Notification.EXTRA_PICTURE`)
+  cuando la notificación trae una — es lo único accesible por esta vía; NO hay forma de
+  obtener el archivo original de foto/video/audio/documento de otra app (ver limitaciones
+  abajo). Actualiza el "heartbeat" (`DisplayPreferences.touchHeartbeat`) en cada evento, para
+  que la Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)`
+  (llamado desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener
+  si Android lo mató.
 - `WalletNotificationNotifier.kt` — notificación del sistema (top deslizable) + `fullScreenIntent`
   (solo para pagos, si "Pantalla completa" está activado).
 - `WalletOverlay.kt` — el aviso flotante ("Pantalla de aviso"), vistas nativas de Android
@@ -66,8 +269,51 @@ que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
   Mismos colores de botones que el overlay.
 - `WalletConfig.kt` / `AppConfig.kt` — registros de billeteras y "aplicaciones generales"
   respectivamente (mismo patrón, `SharedPreferences` con formato `nombre|paquete|enabled`).
+  **`detect()` corregido (Paso 1, 2026-09-23):** recibe `packageName`, `title`, `text` por
+  separado; si la regla tiene `packageId` exige coincidencia EXACTA de paquete, y solo si
+  está vacío cae a buscar el *nombre* como palabra completa (evita falsos positivos como
+  "pizzas" conteniendo "zas").
+  ✅ **Resuelto por el usuario (2026-09-23):** re-agregó YAPE/YOLO/YASTA/AlToke/Bille desde el
+  selector de apps instaladas, ahora con `packageId` real cada una. Quedó un registro viejo
+  "YOLO" (vacío, del default original) duplicado con el nuevo "Yolo Pago" — se puede quitar con
+  el botón nuevo "Quitar" (ver abajo).
+  **`remove()` nuevo (2026-09-23):** `WalletConfig.remove(context, name)` / `AppConfig.remove`
+  — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
+  switch de cada fila en Configuración.
+- `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23) — detección de medios NUEVOS
+  de WhatsApp: `isWhatsApp`/`looksLikeNewMedia` (con exclusión explícita de sticker/GIF) para
+  decidir si vale la pena buscar, `hasMediaPermission` (permisos de medios según SDK) y
+  `findNewMedia` (consulta `MediaStore` Images/Video/Audio en una ventana de tiempo alrededor
+  del `postTime` de la notificación, filtra por ruta que contenga "WhatsApp", y recuerda URIs
+  ya vistas para no repetir ni recorrer el histórico). Llamado desde
+  `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que encuentra
+  (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h, pendiente).
+- `TelegramClient.kt` — cliente mínimo (sin librerías) de la API HTTP de Telegram Bot:
+  `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (polling, sin
+  webhook). Todo con `HttpURLConnection` + `org.json`.
+- `TelegramConfig.kt` — guarda token del bot / chat id en `SharedPreferences`.
+  **Rediseño Paso 3 (2026-09-23, un solo bot para todas las sucursales, decisión del usuario):**
+  se cambió `lastUpdateId` (un offset que se le confirmaba a Telegram) por
+  `isUpdateProcessed`/`markUpdateProcessed` (un set de `update_id` ya vistos, local por
+  dispositivo, tope 300). Motivo: al confirmar el offset ante Telegram, el servidor deja de
+  entregar esos mensajes a CUALQUIER otro teléfono que use el mismo bot — el primero que
+  consultaba "se comía" los comandos y los demás nunca los veían.
+- `TelegramSyncWorker.kt` — `Worker` de WorkManager que corre periódicamente: envía el CSV
+  del historial al bot y revisa comandos entrantes (`getUpdates`). **Ahora pide siempre
+  `offset=0`** (nunca confirma nada ante Telegram) y filtra los repetidos con
+  `TelegramConfig.isUpdateProcessed` — así el mismo lote de comandos sigue disponible para
+  TODOS los teléfonos que comparten el bot, no solo el primero que consulta. Comandos
+  soportados:
+  - `/notificar TODOS|<sucursal> <mensaje>` — dispara notificación/voz personalizada en el
+    dispositivo(s) destino.
+  - `/renombrar <código_actual> <nombre_nuevo>` — renombra el `deviceLabel` de una sucursal
+    (solo si el código coincide).
+  Se arranca desde `MainActivity.onCreate`. Dependencia `androidx.work:work-runtime-ktx:2.11.2`
+  agregada en `app/build.gradle.kts`.
 - `DisplayPreferences.kt` — todas las preferencias del usuario (switches, perfil de voz,
-  velocidad, heartbeat, etc.).
+  velocidad, heartbeat, `deviceLabel` —nombre de sucursal, se genera un código alfanumérico
+  aleatorio tipo `MS-7K2F9Q` si no fue personalizado, renombrable por Telegram con
+  `/renombrar`—, etc.).
 - `VoiceProfile.kt` — solo **Varón** y **Mujer** (se quitaron Niño/Niña/Anciano/Anciana por
   pedido explícito). Ver "Pendiente / limitaciones conocidas" sobre la voz de Varón.
 - `SpeechEngine.kt` — motor TTS. Intenta usar una voz real del teléfono marcada
@@ -79,6 +325,11 @@ que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
 - `AmountSpeech.kt` — parseo de montos ("Bs3.29", "Bs1.2", "Bs. 1.20"...) a frase hablada
   ("3 Bolivianos con 29 centavos"). Regla importante: un solo dígito decimal se rellena a la
   derecha (`.2` → 20 centavos, no 2). Usa "Un" en vez de "1" para concordancia de género.
+  **Corregido:** montos con separador de miles (ej. `Bs 2,392.69`) se leían mal como "2 con
+  39 centavos" — ahora `parseAmount()` distingue separador de miles vs. decimal por la
+  posición del último `.`/`,` y la cantidad de dígitos que le siguen (1-2 dígitos = decimal,
+  0 o 3+ = miles), así que `2,392.69` se lee correctamente "Dos mil trecientos noventa y dos
+  Bolivianos con sesenta y nueve centavos".
 - `NotificationSpeech.kt` — frase hablada para apps "generales" (no billeteras);
   reemplaza URLs por "hay un link".
 - `PaymentMessageDetector.kt` — distingue pago real de publicidad de la billetera
@@ -149,6 +400,39 @@ que lee `BuildConfig.VERSION_NAME`/`VERSION_CODE`.
     `update.json`, despliega a Firebase Hosting, y hace commit+push. Ver sección siguiente.
 23. **Filtro de publicidad manual** (v2.10): botón "🚫 Marcar como publicidad" en cada
     tarjeta del Historial, complementa al filtro automático (`AdFilterConfig.kt` arriba).
+24. **Integración con Telegram** (sin publicar aún, ver arriba): comandos `/notificar` y
+    `/renombrar` vía polling (`TelegramSyncWorker` + WorkManager), envío periódico del CSV
+    del historial al bot. Ver `TelegramClient.kt`/`TelegramConfig.kt`/`TelegramSyncWorker.kt`.
+25. **Nombre de sucursal aleatorio**: si el `deviceLabel` no fue personalizado, se genera un
+    código alfanumérico tipo `MS-7K2F9Q` (en vez de quedar vacío o genérico), renombrable
+    después desde Telegram con `/renombrar`.
+26. **Botón Atrás físico de Android corregido**: el `BackHandler` de Compose en Configuración/
+    Leer/selector de apps ya funcionaba en código, pero le faltaba
+    `android:enableOnBackInvokedCallback="true"` en el manifest (requerido desde Android 13+
+    para que el botón/gesto físico del sistema le llegue a Compose) — agregado y confirmado.
+27. **Ícono de la app → `miSecretaria.jpg`** ✅ hecho en código (2026-09-23), pendiente de
+    verlo en el teléfono tras compilar. Historia: una primera pasada (`gen_icons.ps1`)
+    generó PNG por densidad pero (a) recortaba el JPG en cuadrado central, cortando sombrero
+    y base, (b) el JPG trae un **tablero gris/blanco "quemado"** de falsa transparencia, y
+    (c) el ícono adaptativo (`mipmap-anydpi/ic_launcher.xml`, el que usa Android 8+) seguía
+    apuntando al avatar viejo "SCO". Solución final con **`gen_icons_v2.ps1`**: quita el
+    tablero por relleno desde los bordes (pixeles casi grises y claros; el contorno negro y
+    el aro dorado frenan el relleno; incluye compilación C# inline con `Add-Type`), recorta
+    al personaje completo y genera en las 5 densidades: `ic_launcher_foreground.png`
+    (transparente, personaje al 64% del alto = dentro de la zona segura), `ic_launcher.png`
+    (cuadrado, fondo crema) e `ic_launcher_round.png`. Cambios de recursos:
+    `ic_launcher.xml`/`ic_launcher_round.xml` ahora usan `@mipmap/ic_launcher_foreground`;
+    se quitó `<monochrome>` (con imagen a color solo daba una silueta);
+    `drawable/ic_launcher_background.xml` = crema `#F6E7B4` (cambiar también `$bgHex` en el
+    script si se quiere otro color); se borraron `drawable/ic_launcher_foreground.xml` y
+    `drawable-nodpi/scosecretaria_avatar.png` (verificado sin referencias colgando). Para
+    regenerar: `powershell -ExecutionPolicy Bypass -File gen_icons_v2.ps1` (escribe en
+    `app/src/main/res`; correrlo desde Windows está bien, solo son imágenes).
+    `gen_icons.ps1` y `check_dims.ps1` quedan obsoletos.
+28. **Corrección de lectura de montos con separador de miles** (ej. `Bs 2,392.69`): código
+    escrito en `AmountSpeech.parseAmount()` (revisado por lectura: `2,392.69` → 2392 Bs +
+    69 ctvs). ⚠️ **No compilado ni probado en el equipo aún.** Nota: la frase hablada usa
+    dígitos ("2392 Bolivianos"); el "dos mil trescientos noventa y dos" depende del motor TTS.
 
 ## Firebase / GitHub — datos del proyecto
 
@@ -200,10 +484,53 @@ firebase deploy --only hosting
 git add -A && git commit -m "Release v(x.x)" && git push
 ```
 
+## Limpieza del repo (2026-09-23)
 
+A pedido del usuario ("revisa todos los archivos... lo que no es funcional, elimínalo"), se
+quitaron del repo (recuperables del historial de git si hiciera falta):
+- Los 8 scripts `miSecretariaV2.2` a `V2.11`-`instalar.sh` — huérfanos, `release.sh` nunca los
+  llamó; el flujo real siempre fue compilar+copiar a `Releases/` directo.
+- `Releases/*.apk` (13 APKs históricos, ~150 MB) — ya no aportan nada: la distribución real es
+  GitHub Releases, no la copia local en el repo. `Releases/` queda en `.gitignore`;
+  `release.sh` la vuelve a crear sola en cada publicación.
+- `ScoSecretaria.png` — logo del nombre viejo del proyecto, cero referencias en el código.
+- `gen_icons.ps1` / `check_dims.ps1` — ya marcados obsoletos en este mismo archivo, superados
+  por `gen_icons_v2.ps1` (que sí sigue en uso).
+- `.firebase/hosting.cHVibGlj.cache` — caché local de la CLI de Firebase, comiteado por error;
+  ahora en `.gitignore`, se regenera solo.
+- ⚠️ Nota sobre el tamaño del repo: quitar `Releases/*.apk` del *tracking* no reduce el tamaño
+  del historial de git ya existente (~150 MB siguen en commits viejos) — eso requeriría
+  reescribir el historial (`git filter-repo`/BFG + force-push), una operación destructiva que
+  no se hizo; solo se pidió si el usuario lo pide explícitamente en el futuro.
 
 ## Pendiente / limitaciones conocidas
 
+- **YASTA sin packageId real:** `WalletConfig.defaults` trae `YASTA` con `packageId=""`
+  desde el código original (pre-Claude) — nunca se detecta porque busca literalmente la
+  palabra "yasta" en el mensaje (que no aparece en notificaciones reales). No se corrigió
+  con un paquete adivinado (se sospechaba `com.busa.wallet`, sin confirmar con certeza) —
+  queda resuelto cuando el usuario la vuelva a agregar desde el selector de apps instaladas
+  (autocompleta el paquete correcto; si queda vacío, ahora se ve en rojo en Configuración).
+  Lo mismo puede pasar con "Bille" u otras billeteras agregadas sin paquete.
+- **Audio/video de WhatsApp — reproducción automática en cola y copia de medios borrados:** ✅ **DECIDIDO 2026-09-23: opción b (solo archivos NUEVOS) — plan en "PASOS SIGUIENTES", Paso 2.**
+  pedido explícitamente por el usuario, **no implementado**, y tiene una limitación real de
+  Android de fondo que hay que resolver antes de programar nada:
+  `NotificationListenerService` (la única vía que usa la app para leer WhatsApp sin rootear
+  el teléfono) **no expone el archivo multimedia original** de otra app — solo puede acceder
+  a lo que la notificación trae embebido, que en el mejor caso es una miniatura de baja
+  resolución (`Notification.EXTRA_PICTURE`, ya usado en `saveThumbnailIfAny()` de
+  `WalletNotificationListener.kt`). No hay audio, ni video, ni documento real accesible por
+  esta vía, y por lo tanto tampoco es posible "reproducir en cola" ni "guardar una copia
+  antes de que el remitente lo borre" para esos tipos de archivo tal como se pidió. Caminos
+  alternativos discutidos pendientes de decidir con el usuario antes de tocar código:
+  a) Accessibility Service (más invasivo, más frágil ante actualizaciones de WhatsApp, pero
+     sí puede acceder a la UI/contenido real reproducido en pantalla);
+  b) leer directo la base de datos/carpeta de medios de WhatsApp (no soportado oficialmente,
+     roto por Scoped Storage en versiones recientes de Android);
+  c) limitar el alcance a lo que sí es viable hoy (miniatura de imagen ya implementada) y
+     dejar audio/video fuera de esta función.
+  Tampoco está implementado el checklist de "qué tipo de archivo nuevo guardar" ni el
+  reenvío automático de esos medios al bot de Telegram — depende de resolver lo anterior.
 - **Voz de Varón:** puede seguir sonando parecida a mujer en teléfonos cuyo motor TTS no
   tenga una voz masculina real instalada para español — en ese caso cae al respaldo de
   pitch bajo (0.48), que tiene un límite físico de cuánto puede "engrosar" una voz sintética

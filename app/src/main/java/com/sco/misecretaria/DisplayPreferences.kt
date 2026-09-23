@@ -14,6 +14,19 @@ object DisplayPreferences {
     private const val VOICE_PROFILE = "voice_profile"
     private const val SPEECH_RATE = "speech_rate"
     private const val HEARTBEAT = "service_heartbeat"
+    private const val DEVICE_LABEL = "device_label"
+
+    /** Nombre de sucursal/dispositivo. Si nunca se personalizó, genera un código alfanumérico
+     * aleatorio (ej. "MS-7K2F9Q") la primera vez y lo deja fijo — se puede renombrar después
+     * desde la app o desde el bot de Telegram. */
+    fun deviceLabel(context: Context): String {
+        val current = get(context, DEVICE_LABEL, "")
+        if (current.isNotBlank()) return current
+        val generated = "MS-" + (1..6).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("")
+        put(context, DEVICE_LABEL, generated)
+        return generated
+    }
+    fun setDeviceLabel(context: Context, value: String) = put(context, DEVICE_LABEL, value.trim())
 
     fun serviceEnabled(context: Context) = get(context, SERVICE_ENABLED, "true") == "true"
     fun setServiceEnabled(context: Context, value: Boolean) = put(context, SERVICE_ENABLED, value.toString())

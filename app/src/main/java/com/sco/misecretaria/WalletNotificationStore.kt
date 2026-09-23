@@ -76,6 +76,15 @@ object WalletNotificationStore {
         }
     }
 
+    /** CSV para el envío periódico por Telegram: incluye la sucursal/dispositivo de origen. */
+    fun exportCsvFor(items: List<WalletNotification>, deviceLabel: String): String = buildString {
+        appendLine("Sucursal,Fecha,Origen,Tipo,Mensaje")
+        items.forEach {
+            val fields = listOf(deviceLabel, it.receivedAt, it.wallet, it.kind.name, it.message)
+            appendLine(fields.joinToString(",") { field -> "\"${field.replace("\"", "\"\"")}\"" })
+        }
+    }
+
     private fun save(key: String, values: List<WalletNotification>) {
         val array = JSONArray()
         values.forEach {
@@ -87,6 +96,7 @@ object WalletNotificationStore {
                     .put("message", it.message)
                     .put("receivedAt", it.receivedAt)
                     .put("kind", it.kind.name)
+                    .put("mediaPath", it.mediaPath ?: JSONObject.NULL)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -113,7 +123,8 @@ object WalletNotificationStore {
                             title = item.getString("title"),
                             message = item.getString("message"),
                             receivedAt = item.getString("receivedAt"),
-                            kind = runCatching { NotificationKind.valueOf(item.optString("kind", NotificationKind.PAYMENT.name)) }.getOrDefault(NotificationKind.PAYMENT)
+                            kind = runCatching { NotificationKind.valueOf(item.optString("kind", NotificationKind.PAYMENT.name)) }.getOrDefault(NotificationKind.PAYMENT),
+                            mediaPath = item.optString("mediaPath", null)?.takeIf { it.isNotBlank() && it != "null" }
                         )
                     )
                 }

@@ -1,13 +1,18 @@
 package com.sco.misecretaria
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,11 +22,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.core.graphics.drawable.toBitmap
 import com.sco.misecretaria.ui.theme.ScoSecretariaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -29,13 +37,28 @@ import java.io.File
 
 private const val REPORT_MIME = "text/plain"
 enum class NotificationKind { PAYMENT, GENERAL }
-data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT)
+data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT, val mediaPath: String? = null)
 
 class MainActivity : ComponentActivity() {
     companion object { private const val REQ_SAVE = 100; private const val REQ_RESTORE = 101 }
     private var pendingSaveText: String = ""
+    private val mediaPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
-    override fun onCreate(state: Bundle?) { super.onCreate(state); WalletNotificationStore.init(applicationContext); render() }
+    fun requestMediaPermissions() {
+        val perms = if (Build.VERSION.SDK_INT >= 33) {
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        mediaPermissionLauncher.launch(perms)
+    }
+
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        WalletNotificationStore.init(applicationContext)
+        if (TelegramConfig.isConfigured(this)) TelegramSyncWorker.schedule(this)
+        render()
+    }
     override fun onResume() { super.onResume(); WalletNotificationListener.requestServiceRebind(this) }
     private fun render() { setContent { ScoSecretariaTheme { ScoSecretariaApp(this) } } }
     fun share(name: String, text: String, mime: String = REPORT_MIME) {
@@ -121,6 +144,7 @@ enum class PickerTarget { WALLET, APP }
     val filtered = remember(apps, query) {
         if (query.isBlank()) apps else apps.filter { it.label.contains(query, true) || it.packageName.contains(query, true) }
     }
+    BackHandler(onBack = onDone)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onDone) { Text("Volver") }; Text(if (target == PickerTarget.WALLET) "Elegir billetera" else "Elegir aplicación", style = MaterialTheme.typography.headlineSmall) }
         OutlinedTextField(query, { query = it }, label = { Text("Buscar") }, modifier = Modifier.fillMaxWidth())
@@ -133,9 +157,12 @@ enum class PickerTarget { WALLET, APP }
                     else AppConfig.add(context, app.label, app.packageName)
                     onDone()
                 }) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(app.label, style = MaterialTheme.typography.titleSmall)
-                        Text(app.packageName, style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppIcon(app.packageName)
+                        Column {
+                            Text(app.label, style = MaterialTheme.typography.titleSmall)
+                            Text(app.packageName, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
@@ -184,6 +211,7 @@ enum class PickerTarget { WALLET, APP }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(filtered, key = { it.id }) { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
             Text("${item.wallet} · ${item.receivedAt}"); Text(item.message)
+            item.mediaPath?.let { path -> ThumbnailImage(path) }
             if (editingAdId == item.id) {
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(draftPhrase, { draftPhrase = it }, label = { Text("Frase para bloquear futuros similares") }, modifier = Modifier.fillMaxWidth())
@@ -203,6 +231,7 @@ enum class PickerTarget { WALLET, APP }
     var text by remember { mutableStateOf("") }
     var voiceProfile by remember { mutableStateOf(DisplayPreferences.voiceProfile(context)) }
     var isPaused by remember { mutableStateOf(false) }
+    BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Leer", style = MaterialTheme.typography.headlineSmall) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -233,17 +262,22 @@ enum class PickerTarget { WALLET, APP }
     var buttons by remember { mutableStateOf(DisplayPreferences.buttons(context)) }
     var voiceProfile by remember { mutableStateOf(DisplayPreferences.voiceProfile(context)) }
     var speechRate by remember { mutableStateOf(DisplayPreferences.speechRateMultiplier(context)) }
-    var walletName by remember { mutableStateOf("") }; var walletPkg by remember { mutableStateOf("") }
-    var appName by remember { mutableStateOf("") }; var appPkg by remember { mutableStateOf("") }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateChecked by remember { mutableStateOf(false) }
     var blockedPhrases by remember { mutableStateOf(AdFilterConfig.list(context)) }
+    var deviceLabel by remember { mutableStateOf(DisplayPreferences.deviceLabel(context)) }
+    var tgToken by remember { mutableStateOf(TelegramConfig.botToken(context)) }
+    var tgChatId by remember { mutableStateOf(TelegramConfig.chatId(context)) }
+    var tgInterval by remember { mutableStateOf(TelegramConfig.intervalMinutes(context).toString()) }
+    var tgStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Configuración", style = MaterialTheme.typography.headlineSmall) }
         PermissionRow("Acceso a notificaciones", isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         PermissionRow("Mostrar sobre otras aplicaciones", Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
+        PermissionRow("Acceso a medios (fotos/audio/video de WhatsApp)", WhatsAppMediaScanner.hasMediaPermission(context)) { activity.requestMediaPermissions() }
         Spacer(Modifier.height(10.dp))
         Text("Versión instalada: ${AppInfo.VERSION}", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -300,19 +334,56 @@ enum class PickerTarget { WALLET, APP }
             TextButton(onClick = { activity.restoreBackup() }) { Text("Restaurar Backup") }
         }
         Text("Billeteras autorizadas", style = MaterialTheme.typography.titleMedium)
-        rules.forEach { r -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(r.name); Switch(checked = r.enabled, onCheckedChange = { WalletConfig.setEnabled(context, r.name, it); rules = WalletConfig.rules(context) }) } }
-        Button(onClick = onPickWallet) { Text("Elegir desde apps instaladas") }
-        OutlinedTextField(walletName, { walletName = it }, label = { Text("Nombre de nueva billetera") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(walletPkg, { walletPkg = it }, label = { Text("Paquete Android (opcional)") }, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { WalletConfig.add(context, walletName, walletPkg); rules = WalletConfig.rules(context); walletName = ""; walletPkg = "" }) { Text("Agregar billetera") }
+        rules.forEach { r -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppIcon(r.packageId)
+                Column { Text(r.name); Text(r.packageId.ifBlank { "(sin paquete)" }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = r.enabled, onCheckedChange = { WalletConfig.setEnabled(context, r.name, it); rules = WalletConfig.rules(context) })
+                TextButton(onClick = { WalletConfig.remove(context, r.name); rules = WalletConfig.rules(context) }) { Text("Quitar") }
+            }
+        } }
+        Button(onClick = onPickWallet) { Text("Agregar Billetera") }
         Spacer(Modifier.height(20.dp))
         Text("Aplicaciones (General)", style = MaterialTheme.typography.titleMedium)
         Text("WhatsApp, Messenger, SMS u otras: lee el título de la app + el mensaje completo.", style = MaterialTheme.typography.bodySmall)
-        appRules.forEach { r -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(r.name); Switch(checked = r.enabled, onCheckedChange = { AppConfig.setEnabled(context, r.name, it); appRules = AppConfig.rules(context) }) } }
-        Button(onClick = onPickApp) { Text("Elegir desde apps instaladas") }
-        OutlinedTextField(appName, { appName = it }, label = { Text("Nombre de la aplicación") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(appPkg, { appPkg = it }, label = { Text("Paquete Android (opcional)") }, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { AppConfig.add(context, appName, appPkg); appRules = AppConfig.rules(context); appName = ""; appPkg = "" }) { Text("Agregar aplicación") }
+        appRules.forEach { r -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppIcon(r.packageId)
+                Column { Text(r.name); Text(r.packageId.ifBlank { "(sin paquete)" }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = r.enabled, onCheckedChange = { AppConfig.setEnabled(context, r.name, it); appRules = AppConfig.rules(context) })
+                TextButton(onClick = { AppConfig.remove(context, r.name); appRules = AppConfig.rules(context) }) { Text("Quitar") }
+            }
+        } }
+        Button(onClick = onPickApp) { Text("Agregar Aplicación") }
+        Spacer(Modifier.height(20.dp))
+        Text("Telegram", style = MaterialTheme.typography.titleMedium)
+        Text("Envía por Telegram un CSV con las notificaciones nuevas cada cierto tiempo, y recibe avisos remotos vía /notificar TODOS|sucursal mensaje.", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(deviceLabel, { deviceLabel = it }, label = { Text("Nombre de sucursal/dispositivo") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tgToken, { tgToken = it }, label = { Text("Token del bot") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tgChatId, { tgChatId = it }, label = { Text("Chat ID") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tgInterval, { tgInterval = it.filter { c -> c.isDigit() } }, label = { Text("Intervalo (minutos, mínimo 15)") }, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                DisplayPreferences.setDeviceLabel(context, deviceLabel)
+                TelegramConfig.setBotToken(context, tgToken)
+                TelegramConfig.setChatId(context, tgChatId)
+                TelegramConfig.setIntervalMinutes(context, tgInterval.toLongOrNull() ?: 30L)
+                if (TelegramConfig.isConfigured(context)) TelegramSyncWorker.schedule(context) else TelegramSyncWorker.cancel(context)
+                tgStatus = "Guardado."
+            }) { Text("Guardar y activar") }
+            OutlinedButton(onClick = {
+                tgStatus = "Enviando..."
+                scope.launch {
+                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TelegramClient.sendMessage(tgToken, tgChatId, "✅ Prueba de conexión desde $deviceLabel") }
+                    tgStatus = if (ok) "Mensaje de prueba enviado." else "No se pudo enviar — revisa token/chat id."
+                }
+            }) { Text("Enviar mensaje de prueba") }
+        }
+        if (tgStatus != null) Text(tgStatus!!, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))
         Text("Publicidad bloqueada", style = MaterialTheme.typography.titleMedium)
         if (blockedPhrases.isEmpty()) {
@@ -328,5 +399,22 @@ enum class PickerTarget { WALLET, APP }
 }
 
 @Composable private fun SettingSwitch(label: String, value: Boolean, onChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = if (value) Color(0xFF188038) else Color.Red); Switch(checked = value, onCheckedChange = onChange) } }
-@Composable private fun PermissionRow(label: String, enabled: Boolean, onClick: () -> Unit) { Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = if (enabled) Color(0xFF188038) else Color.Red); TextButton(onClick = onClick) { Text(if (enabled) "✓" else "Habilitar") } } }
+@Composable private fun PermissionRow(label: String, enabled: Boolean, onClick: () -> Unit) { Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = if (enabled) Color(0xFF188038) else Color.Red, modifier = Modifier.weight(1f)); TextButton(onClick = onClick) { Text(if (enabled) "✓" else "Habilitar") } } }
+@Composable private fun AppIcon(packageId: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val bitmap = remember(packageId) {
+        runCatching { context.packageManager.getApplicationIcon(packageId).toBitmap().asImageBitmap() }.getOrNull()
+    }
+    if (bitmap != null) Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(36.dp))
+    else Box(modifier.size(36.dp))
+}
+@Composable private fun ThumbnailImage(path: String) {
+    val bitmap = remember(path) {
+        runCatching { android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
+    }
+    if (bitmap != null) {
+        Spacer(Modifier.height(6.dp))
+        Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp))
+    }
+}
 private fun isNotificationAccessEnabled(c: Context): Boolean { val e = Settings.Secure.getString(c.contentResolver, "enabled_notification_listeners") ?: return false; val component = ComponentName(c, WalletNotificationListener::class.java).flattenToString(); return e.split(':').any { it.equals(component, true) } }

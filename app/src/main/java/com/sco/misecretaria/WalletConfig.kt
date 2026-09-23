@@ -28,17 +28,31 @@ object WalletConfig {
 
     fun setEnabled(context: Context, name: String, enabled: Boolean) = save(context, rules(context).map { if (it.name == name) it.copy(enabled = enabled) else it })
 
+    fun remove(context: Context, name: String) = save(context, rules(context).filterNot { it.name.equals(name, true) })
+
     fun add(context: Context, name: String, packageId: String) {
         if (name.isBlank()) return
         val current = rules(context).filterNot { it.name.equals(name.trim(), true) }
         save(context, current + WalletRule(name.trim(), packageId.trim(), true))
     }
 
-    fun detect(context: Context, source: String): String? {
-        val normalized = source.lowercase(Locale.ROOT)
+    /**
+     * Si la regla tiene `packageId`, exige coincidencia EXACTA de paquete (no substring de
+     * título/texto: evita falsos positivos como "pizzas" conteniendo "zas"). Solo si el
+     * `packageId` está vacío, cae a buscar el nombre como palabra completa en título/texto.
+     */
+    fun detect(context: Context, packageName: String, title: String, text: String): String? {
+        val combinedText = "$title $text".lowercase(Locale.ROOT)
         return rules(context).firstOrNull { rule ->
-            rule.enabled && ((rule.packageId.isNotBlank() && normalized.contains(rule.packageId.lowercase(Locale.ROOT))) || normalized.contains(rule.name.lowercase(Locale.ROOT)))
+            if (!rule.enabled) return@firstOrNull false
+            if (rule.packageId.isNotBlank()) packageName.equals(rule.packageId, ignoreCase = true)
+            else containsWord(combinedText, rule.name)
         }?.name
+    }
+
+    private fun containsWord(haystack: String, needle: String): Boolean {
+        if (needle.isBlank()) return false
+        return Regex("\\b${Regex.escape(needle.lowercase(Locale.ROOT))}\\b").containsMatchIn(haystack)
     }
 
     private fun save(context: Context, values: List<WalletRule>) {
