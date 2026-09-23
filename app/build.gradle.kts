@@ -1,9 +1,21 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.appdistribution)
 }
+
+// Build "Interna": token/Chat ID de Telegram pre-rellenados, SOLO para el debug local del
+// dueño, nunca para el build público. `secrets.properties` es un archivo local, en
+// .gitignore, que jamás se commitea. Sin `-PincludeSecrets=true` (el caso normal, y siempre
+// el de release.sh), estos campos quedan vacíos sin importar si el archivo existe en disco.
+val secretsProps = Properties().apply {
+    val f = rootProject.file("secrets.properties")
+    if (f.exists()) f.inputStream().use { stream -> load(stream) }
+}
+val includeSecrets = project.hasProperty("includeSecrets") && project.property("includeSecrets") == "true"
 
 android {
     namespace = "com.sco.misecretaria"
@@ -16,13 +28,22 @@ android {
         minSdk = 26
         targetSdk = 37
         // Esquema: versionCode = major*1000 + minor (soporta minor hasta 999, ej. 2.700 -> 2700)
-        versionCode = 2012
-        versionName = "2.12"
+        versionCode = 2013
+        versionName = "2.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "DEFAULT_BOT_TOKEN", "\"\"")
+        buildConfigField("String", "DEFAULT_CHAT_ID", "\"\"")
     }
 
     buildTypes {
+        debug {
+            if (includeSecrets) {
+                buildConfigField("String", "DEFAULT_BOT_TOKEN", "\"${secretsProps.getProperty("botToken", "")}\"")
+                buildConfigField("String", "DEFAULT_CHAT_ID", "\"${secretsProps.getProperty("chatId", "")}\"")
+            }
+        }
         release {
             optimization {
                 enable = false

@@ -2,14 +2,92 @@
 
 Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Claude.
 
-## ESTADO ACTUAL (actualizado 2026-09-23, tras compilar y probar en el teléfono)
+## ESTADO ACTUAL (actualizado 2026-09-23)
 
-Código en disco = v2.12 (`versionCode=2012`) **con cambios sin publicar** — falta que el
+Código en disco = v2.13 (`versionCode=2013`) **con cambios sin publicar** — falta que el
 usuario corra el release (ver Paso 4). Regla de trabajo con el usuario: ADB es SOLO para diagnóstico
 técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log interno, `content query` sobre
 MediaStore) — **nunca para instalar**; el usuario instala siempre por su cuenta, vía "Buscar
 actualización" en la app. `CLAUDE.md` (memoria técnica) y `README.md` (manual de uso) se
 actualizan en cada cambio, no solo al cerrar una tanda.
+
+### Tanda v2.13 (pedida por el usuario 2026-09-23) — compilada, SIN probar en el teléfono todavía
+- ✅ Botones "Configuración"/"Leer" en Home, y "Compartir Historial/CSV/Log" en Configuración
+  → ahora en azul (`AccentBlue` en `ui/theme/Color.kt`). Antes salían café/crema porque
+  `ScoSecretariaTheme` usa `dynamicColor = true` (Material You, colores del wallpaper del
+  usuario en Android 12+) — se sobreescribió el color de esos botones puntuales, no el tema
+  entero.
+- ✅ Se quitaron los botones "Guardar Historial"/"Guardar CSV"/"Guardar Log" (redundantes con
+  "Compartir") — ahora solo queda un botón "Compartir" por cada uno. La función `save()` de
+  `MainActivity` sigue existiendo (la sigue usando "Guardar Backup").
+- ✅ `WalletConfig.defaults`: se quitó la entrada muerta `WalletRule("YOLO", "", true)` — ya
+  cubierta por "Yolo Pago" (agregada por el usuario desde el selector de apps, con paquete
+  real). Solo afecta instalaciones NUEVAS/sin config guardada; en el teléfono del usuario, si
+  el "YOLO" viejo sigue en su lista, lo puede quitar con el botón "Quitar" (ya en v2.12).
+- ✅ **PIN de administrador** (`AdminAccess.kt`, PIN fijo `230985`, sin UI para cambiarlo por
+  ahora): en Home, tocar 3 veces seguidas el logo (ícono `ic_launcher_foreground`) junto al
+  título abre un diálogo de PIN. Correcto → `adminUnlocked=true` para el resto de la sesión
+  (no se persiste; se resetea al reabrir la app). En Configuración, con `adminUnlocked=false`
+  el Token y Chat ID de Telegram se muestran enmascarados ("•••• configurado" /
+  "no configurado") y NO son editables; con `true` se ven los campos normales de siempre.
+  El nombre de sucursal, intervalo y botones de guardar/probar quedan visibles siempre (no son
+  secretos). Estado se maneja en `ScoSecretariaApp` (arriba de `HomeScreen`/`SettingsScreen`).
+- ⚠️→✅ **Pedido inicial rechazado por seguridad, resuelto con una build separada.** El usuario
+  pidió dejar SU token real y Chat ID como valor por defecto ya rellenado en el código. Se
+  rechazó hacerlo en el build PÚBLICO: ese código se compila en el APK que se instala en CADA
+  sucursal y se distribuye públicamente (GitHub Releases + actualización in-app) — cualquiera
+  que decompile el APK vería el token en texto plano. En su lugar, a propuesta del usuario, se
+  implementó una **build "Interna" separada** (`build_interna.sh`):
+  - `secrets.properties` (nuevo, en `.gitignore`, NUNCA se commitea) guarda `botToken`/`chatId`
+    reales en texto plano, solo en el Debian del usuario. Ya se creó con sus datos reales.
+  - `app/build.gradle.kts`: lee ese archivo y define `BuildConfig.DEFAULT_BOT_TOKEN`/
+    `DEFAULT_CHAT_ID`, pero **solo si se compila con `-PincludeSecrets=true`** — el build
+    normal (`assembleDebug` sin flags, que es lo que usa `release.sh`) siempre los deja vacíos,
+    sin importar si `secrets.properties` existe en disco. Verificado con builds de prueba
+    alternando el flag: sin fuga de caché entre uno y otro.
+  - `TelegramConfig.botToken()`/`chatId()`: si el usuario no guardó nada en SharedPreferences,
+    caen a `BuildConfig.DEFAULT_BOT_TOKEN`/`DEFAULT_CHAT_ID` (vacíos en el build público).
+  - `build_interna.sh`: corre `./gradlew assembleDebug -PincludeSecrets=true` y copia el
+    resultado a `Releases/miSecretariaV(x.x)-debug_Interna.apk` (probado, genera el APK
+    correctamente). Ese archivo **nunca se sube a GitHub Releases ni a Firebase** — el usuario
+    lo pasa a mano (USB/Bluetooth) a los teléfonos de sucursal.
+  - `secrets.properties.example` (sí commiteado): plantilla vacía para que una sesión futura
+    sepa el formato sin exponer nada.
+  Complementario: **Backup/Restauración también incluye el token+Chat ID+intervalo**
+  (`BackupManager.exportJson`/`importJson`, sección `"telegram"` — a propósito NO incluye el
+  nombre de sucursal, que debe quedar distinto por teléfono) — sirve para actualizar el token
+  en una instalación YA existente sin recompilar. El usuario puede configurar Telegram UNA
+  vez en su teléfono maestro (detrás del PIN), exporta un Backup, y restaura ese mismo archivo
+  en cada teléfono de sucursal — el secreto nunca toca el repo ni el código fuente. ⚠️ El
+  archivo de backup exportado ahora contiene el token — tratarlo como una contraseña (no
+  compartirlo por canales inseguros).
+- ✅ **Comando `/help` (y `/start`) en el bot de Telegram** (`TelegramSyncWorker.handleHelpCommand`):
+  responde con la lista de comandos (`/notificar`, `/renombrar`, `/help`) y el nombre de la
+  sucursal que contesta. ⚠️ Responde CADA dispositivo que comparte el bot (no hay "un solo
+  respondedor" sin servidor propio) — con pocas sucursales es aceptable, revisar si escala mal
+  con muchas.
+- ✅ **Botón "Sincronizar ahora"** en Configuración → Telegram: llama a
+  `TelegramSyncWorker.runOnce(context)` (ya existía en el código, nunca se llamaba desde
+  ningún lado — se agregó el botón que faltaba). Sirve para probar comandos/CSV al instante,
+  sin esperar el intervalo periódico (mínimo 15 min) ni depender de que WorkManager decida
+  correr pronto.
+- **Diagnóstico: "el bot no responde ni /help ni nada" (reportado por el usuario 2026-09-23).**
+  Antes de asumir un bug, dos causas mucho más probables en ESTE momento:
+  1. El build instalado en el teléfono (de ~11:17, intermedio) es de ANTES de todo lo de hoy —
+     no tiene `/help`, ni el rediseño `offset=0`, ni "Sincronizar ahora". Hay que instalar 2.13
+     (o la build Interna) para probar cualquiera de estas cosas.
+  2. El worker periódico de Telegram depende de WorkManager, y este teléfono (TECNO LG6n,
+     Transsion/HiOS) **no está en la whitelist de batería del sistema** (confirmado con
+     `adb shell dumpsys deviceidle whitelist`) — el OEM puede demorar o matar el trabajo en
+     segundo plano. Recomendar al usuario: Ajustes → Batería → miSecretaria → "Sin
+     restricciones", y usar el nuevo botón "Sincronizar ahora" para no depender del scheduler
+     mientras se prueba.
+  Si tras instalar 2.13, guardar token/Chat ID (o usar la build Interna) y presionar
+  "Sincronizar ahora" el bot SIGUE sin responder, ahí sí hay que revisar `TelegramClient`/
+  `TelegramSyncWorker` con el log real del teléfono.
+- **Sin probar en el teléfono todavía:** el diálogo de PIN, el enmascarado, el botón "Quitar"
+  de YOLO, el `/help` del bot, "Sincronizar ahora", y la build Interna — el usuario los verá
+  cuando instale 2.13 vía "Buscar actualización" (o la build Interna a mano).
 
 Esta tanda (Paso 1 + Paso 2 fase 1) SÍ se compiló (`./gradlew assembleDebug` exitoso) y se
 instaló/probó una vez en el teléfono del usuario (única instalación por ADB, ya no se repetirá).
@@ -151,15 +229,16 @@ Falta probar con el bot real del usuario (`t.me/miSecretariaPerfecta_bot`, Chat 
 presione "Enviar mensaje de prueba" en Configuración. Alternativa descartada por el usuario:
 un bot (token) por sucursal ("sería problemático").
 
-🔄 **Paso 4 — Cerrar la tanda (Claude + usuario).** `versionCode=2012`/`versionName="2.12"`
+🔄 **Paso 4 — Cerrar la tanda (Claude + usuario).** `versionCode=2013`/`versionName="2.13"`
 ✅ ya subido en `app/build.gradle.kts` y compila limpio (2026-09-23). 2.11 nunca se compiló ni
-publicó — queda absorbida en 2.12, no se publica por separado. Ya NO se crean scripts
-`-instalar.sh` por versión (ver "Cómo compilar e instalar"). Falta:
-1. El usuario prueba en el teléfono lo que sigue sin verificar en vivo: permiso de medios +
-   detección real de WhatsApp (Paso 2), guardar/probar el bot de Telegram (Paso 3).
+publicó, y 2.12 tampoco se llegó a publicar por separado — ambas quedan absorbidas en 2.13.
+Ya NO se crean scripts `-instalar.sh` por versión (ver "Cómo compilar e instalar"). Falta:
+1. El usuario prueba en el teléfono TODO lo que sigue sin verificar en vivo: permiso de medios
+   + detección real de WhatsApp (Paso 2), guardar/probar el bot de Telegram (Paso 3), y toda la
+   tanda v2.13 (botones azules, PIN de administrador, `/help` del bot, YOLO viejo).
 2. Checklist rápido: Atrás físico (Configuración/Leer/selector), íconos y paquetes en las
    listas, `Bs 2,392.69`, ícono nuevo, botón "Quitar" en Billeteras/Apps, `/renombrar`,
-   `/notificar`.
+   `/notificar`, `/help`, triple-tap al logo + PIN `230985`.
 3. El usuario presiona `miSecretaria_Update.desktop` (o corre `./release.sh`) para publicar.
 
 ### Hallazgos de la verificación del 2026-09-23 (lectura estática del código)
@@ -196,7 +275,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2012`, `versionName="2.12"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2013`, `versionName="2.13"` (ver `app/build.gradle.kts`,
   subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
   presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
   de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
@@ -234,6 +313,17 @@ código** — todo pasa por `AppInfo.kt`, que lee `BuildConfig.VERSION_NAME`/`VE
 resto (compilar, publicar en GitHub Releases, actualizar `update.json`, desplegar Firebase
 Hosting, commit+push) lo hace `release.sh` / `miSecretaria_Update.desktop` — ver "Flujo de
 release" más abajo.
+
+**Build "Interna" (2026-09-23, con Token/Chat ID de Telegram pre-rellenados):**
+```bash
+cd ~/Documents/miSecretaria
+cp secrets.properties.example secrets.properties   # solo la primera vez
+# editar secrets.properties con botToken/chatId reales (archivo en .gitignore, no se commitea)
+./build_interna.sh
+```
+Genera `Releases/miSecretariaV(x.x)-debug_Interna.apk`. **Nunca lo suba release.sh ni se sube a
+GitHub** — se pasa a mano (USB/Bluetooth) a los teléfonos de sucursal. Ver detalle técnico en
+la sección v2.13 más arriba.
 
 ## Mapa de archivos (app/src/main/java/com/sco/misecretaria/)
 
@@ -352,7 +442,16 @@ release" más abajo.
 - `WalletNotificationStore.kt` — historial persistido (JSON en `SharedPreferences`),
   export a texto plano y CSV.
 - `BackupManager.kt` — backup/restauración en JSON de: preferencias, billeteras, apps
-  generales. **No incluye el historial** (decisión de alcance, se exporta aparte).
+  generales, **y desde v2.13 también token+Chat ID+intervalo de Telegram** (sección
+  `"telegram"`, a propósito SIN el nombre de sucursal — cada teléfono conserva el suyo). Es la
+  vía pensada para llevar el bot de Telegram a otras sucursales sin escribir el token a mano ni
+  guardarlo en el código (ver [[feedback-no-secrets-in-repo]]). **No incluye el historial**
+  (decisión de alcance, se exporta aparte). ⚠️ El archivo exportado ahora contiene un secreto
+  real si Telegram está configurado — tratarlo como una contraseña.
+- `AdminAccess.kt` (nuevo v2.13) — PIN de administrador (`230985`, fijo, sin UI para
+  cambiarlo). Triple-tap al logo en Home → diálogo de PIN → si es correcto, revela/permite
+  editar el token y Chat ID de Telegram en Configuración durante esa sesión (no se persiste el
+  desbloqueo). Pensado para que el personal de una sucursal no pueda ver ni tocar el token.
 - `ScoSecretariaLogger.kt` — log de depuración, **solo activo en builds DEBUG**
   (`BuildConfig.DEBUG`), con rotación automática (mantiene las últimas ~800 líneas).
 - `AppInfo.kt` — nombre/versión centralizados vía `BuildConfig`.

@@ -11,10 +11,13 @@ object TelegramConfig {
     private const val LAST_CSV_SENT_AT = "last_csv_sent_at"
     private const val PROCESSED_UPDATE_IDS = "processed_update_ids"
 
-    fun botToken(context: Context) = get(context, TOKEN, "")
+    // BuildConfig.DEFAULT_BOT_TOKEN/DEFAULT_CHAT_ID solo vienen rellenos en el build "Interna"
+    // (`build_interna.sh`, nunca en el build público) — sirven de valor de fábrica hasta que
+    // el usuario guarde uno propio en SharedPreferences.
+    fun botToken(context: Context) = get(context, TOKEN, "").ifBlank { BuildConfig.DEFAULT_BOT_TOKEN }
     fun setBotToken(context: Context, value: String) = put(context, TOKEN, value.trim())
 
-    fun chatId(context: Context) = get(context, CHAT_ID, "")
+    fun chatId(context: Context) = get(context, CHAT_ID, "").ifBlank { BuildConfig.DEFAULT_CHAT_ID }
     fun setChatId(context: Context, value: String) = put(context, CHAT_ID, value.trim())
 
     /** Minutos entre envíos. Android no permite trabajo periódico en segundo plano por

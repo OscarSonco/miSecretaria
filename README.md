@@ -68,6 +68,9 @@ bórrala con "Quitar" y vuelve a agregarla desde el selector.
 Permite que la app te mande por Telegram un CSV periódico con las notificaciones nuevas de
 cada sucursal, y que tú le mandes avisos a una o todas las sucursales desde tu chat.
 
+**El Token y el Chat ID están protegidos con PIN** (ver "PIN de administrador" abajo) — solo tú
+puedes verlos o cambiarlos; el personal de la sucursal ve el campo tapado ("•••• configurado").
+
 1. Habla con **@BotFather** en Telegram, crea un bot nuevo y copia el **Token** que te da
    (una cadena larga con dos puntos en el medio, por ejemplo
    `123456789:AAExampleTokenAbCdEfGhIjKlMnOpQrStUvWx` — es un ejemplo, no un token real).
@@ -76,22 +79,56 @@ cada sucursal, y que tú le mandes avisos a una o todas las sucursales desde tu 
 3. Para obtener tu **Chat ID**, abre en el navegador (reemplazando `<TOKEN>` por el token real):
    `https://api.telegram.org/bot<TOKEN>/getUpdates` y busca el número dentro de
    `"chat":{"id": ...}`.
-4. En la app, ve a Configuración → Telegram, pega el **Token del bot** y el **Chat ID**, ponle
-   un nombre a esta sucursal/dispositivo (o deja el código alfanumérico automático) y presiona
+4. En la app, toca 3 veces el logo de la pantalla principal, ingresa tu PIN, y ve a
+   Configuración → Telegram: pega el **Token del bot** y el **Chat ID**, ponle un nombre a
+   esta sucursal/dispositivo (o deja el código alfanumérico automático) y presiona
    **"Guardar y activar"**.
 5. Usa **"Enviar mensaje de prueba"** para confirmar que quedó bien conectado.
+6. Usa **"Sincronizar ahora"** para revisar comandos pendientes y mandar el CSV al instante,
+   sin esperar el intervalo configurado — útil para probar que todo funciona.
 
-**Varias sucursales, un solo bot:** puedes usar el MISMO token y Chat ID en varios teléfonos
-(uno por sucursal) — cada uno debe tener su propio nombre de sucursal en ese mismo campo.
-Todos van a mandar su CSV al mismo chat, y vas a poder avisarles a todos o a uno en particular.
+**Si el bot no responde a ningún comando (ni `/help`):**
+- Revisa que Token y Chat ID estén realmente guardados (toca "Sincronizar ahora" y espera unos
+  segundos).
+- Ve a Ajustes del sistema → Batería → miSecretaria → "Sin restricciones". Algunos teléfonos
+  (sobre todo Tecno/Infinix/Xiaomi y similares) matan las tareas en segundo plano por defecto,
+  y eso incluye la revisión periódica de Telegram.
+- El intervalo mínimo entre revisiones automáticas es de 15 minutos — si no quieres esperar,
+  usa "Sincronizar ahora".
+
+**Varias sucursales, un solo bot — sin escribir el token en cada teléfono, dos formas:**
+
+- **APK "Interna" (recomendado, para quien compila la app):** existe una build especial,
+  `Releases/miSecretariaV(x.x)-debug_Interna.apk`, que ya viene con el Token y Chat ID
+  puestos de fábrica — se instala y ya está lista, sin tocar Configuración. Se genera con
+  `./build_interna.sh` (lee `secrets.properties`, un archivo local que nunca se sube a
+  ningún lado). **Ese APK trae tu token en texto plano — pásalo a mano (USB, Bluetooth) a
+  los teléfonos de tus sucursales, nunca por un canal público** (no es el mismo archivo que
+  se publica en "Buscar actualización", ese siempre viene sin nada pre-rellenado).
+- **Backup/Restauración (alternativa, sirve para cualquier instalación):** en tu teléfono
+  maestro, Configuración → "Guardar Backup" — el archivo `.json` incluye el Token y Chat ID
+  (además de billeteras/apps) — trátalo como una contraseña. En cada sucursal, "Restaurar
+  Backup" con ese archivo. El nombre de sucursal NO se copia, cada teléfono conserva el suyo.
+
+Todas las sucursales mandan su CSV al mismo chat, y puedes avisarles a todas o a una en
+particular (ver comandos abajo).
 
 **Comandos que puedes escribirle al bot desde tu Telegram:**
+- `/help` (o `/start`) — te devuelve la lista completa de comandos.
 - `/notificar TODOS <mensaje>` — el mensaje se anuncia (voz + notificación) en TODAS las
   sucursales conectadas.
 - `/notificar <nombre_de_sucursal> <mensaje>` — solo se anuncia en esa sucursal.
 - `/renombrar <código_actual> <nombre_nuevo>` — si una sucursal se quedó con el código
   alfanumérico automático (ej. `MS-7K2F9Q`) y quieres darle un nombre más claro, así se lo
   cambias sin tocar el teléfono.
+
+### PIN de administrador
+
+Toca **3 veces seguidas** el logo (junto a "miSecretaria Vx.x" en la pantalla principal) para
+que aparezca el diálogo de PIN. El PIN por defecto es **230985**. Al ingresarlo correctamente,
+el Token y Chat ID de Telegram quedan visibles y editables en Configuración durante esa
+sesión (se vuelve a tapar si cierras y reabres la app). El resto de la Configuración
+(billeteras, voz, avisos, etc.) siempre está disponible, con o sin PIN.
 
 ### Copia de seguridad
 

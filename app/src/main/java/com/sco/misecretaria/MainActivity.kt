@@ -27,9 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
+import com.sco.misecretaria.ui.theme.AccentBlue
 import com.sco.misecretaria.ui.theme.ScoSecretariaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -116,13 +119,15 @@ private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP }
 
 @Composable private fun ScoSecretariaApp(activity: MainActivity) {
     var screen by remember { mutableStateOf(Screen.HOME) }
+    var adminUnlocked by remember { mutableStateOf(false) }
     when (screen) {
-        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ })
+        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, onAdminUnlocked = { adminUnlocked = true })
         Screen.SETTINGS -> SettingsScreen(
             onBack = { screen = Screen.HOME },
             activity = activity,
             onPickWallet = { screen = Screen.PICK_WALLET },
-            onPickApp = { screen = Screen.PICK_APP }
+            onPickApp = { screen = Screen.PICK_APP },
+            adminUnlocked = adminUnlocked
         )
         Screen.READ -> ReadScreen({ screen = Screen.HOME })
         Screen.PICK_WALLET -> InstalledAppsScreen(target = PickerTarget.WALLET, onDone = { screen = Screen.SETTINGS })
@@ -170,7 +175,7 @@ enum class PickerTarget { WALLET, APP }
     } }
 }
 
-@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit) {
+@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, onAdminUnlocked: () -> Unit) {
     val context = LocalContext.current
     var history by remember { mutableStateOf(WalletNotificationStore.history()) }
     var serviceOn by remember { mutableStateOf(DisplayPreferences.serviceEnabled(context)) }
@@ -178,6 +183,11 @@ enum class PickerTarget { WALLET, APP }
     var serviceAlive by remember { mutableStateOf(true) }
     var editingAdId by remember { mutableStateOf<String?>(null) }
     var draftPhrase by remember { mutableStateOf("") }
+    var logoTapCount by remember { mutableStateOf(0) }
+    var lastLogoTapAt by remember { mutableStateOf(0L) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         WalletNotificationListener.requestServiceRebind(context)
         while (true) {
@@ -190,12 +200,30 @@ enum class PickerTarget { WALLET, APP }
     val sources = remember(history) { history.map { it.wallet }.distinct().sorted() }
     val filtered = remember(history, filter) { if (filter == null) history else history.filter { it.wallet == filter } }
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
-        Text(AppInfo.DISPLAY, style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher_foreground),
+                contentDescription = null,
+                modifier = Modifier.size(36.dp).clickable {
+                    val now = System.currentTimeMillis()
+                    if (now - lastLogoTapAt > 1200) logoTapCount = 0
+                    logoTapCount++
+                    lastLogoTapAt = now
+                    if (logoTapCount >= 3) {
+                        logoTapCount = 0
+                        pinInput = ""
+                        pinError = false
+                        showPinDialog = true
+                    }
+                }
+            )
+            Text(AppInfo.DISPLAY, style = MaterialTheme.typography.headlineSmall)
+        }
         Text("Asistente de notificaciones de billeteras móviles")
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = openSettings) { Text("Configuración") }
-            Button(onClick = openRead) { Text("Leer") }
+            Button(onClick = openSettings, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Configuración") }
+            Button(onClick = openRead, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Leer") }
         }
         Spacer(Modifier.height(8.dp))
         Button(onClick = { serviceOn = !serviceOn; DisplayPreferences.setServiceEnabled(context, serviceOn) }, colors = ButtonDefaults.buttonColors(containerColor = if (serviceOn) Color(0xFF188038) else Color(0xFFB00020))) { Text(if (serviceOn) "${AppInfo.NAME}: Activado" else "${AppInfo.NAME}: Desactivado") }
@@ -224,6 +252,34 @@ enum class PickerTarget { WALLET, APP }
             }
         } } } }
     } }
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinDialog = false },
+            title = { Text("PIN de administrador") },
+            text = {
+                Column {
+                    Text("Solo para editar el token y Chat ID de Telegram.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        pinInput,
+                        { pinInput = it.filter(Char::isDigit) },
+                        label = { Text("PIN") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pinError) Text("PIN incorrecto", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (AdminAccess.verify(pinInput)) {
+                        showPinDialog = false
+                        onAdminUnlocked()
+                    } else pinError = true
+                }) { Text("Aceptar") }
+            },
+            dismissButton = { TextButton(onClick = { showPinDialog = false }) { Text("Cancelar") } }
+        )
+    }
 }
 
 @Composable private fun ReadScreen(onBack: () -> Unit) {
@@ -252,7 +308,7 @@ enum class PickerTarget { WALLET, APP }
     } }
 }
 
-@Composable private fun SettingsScreen(onBack: () -> Unit, activity: MainActivity, onPickWallet: () -> Unit, onPickApp: () -> Unit) {
+@Composable private fun SettingsScreen(onBack: () -> Unit, activity: MainActivity, onPickWallet: () -> Unit, onPickApp: () -> Unit, adminUnlocked: Boolean) {
     val context = LocalContext.current
     var rules by remember { mutableStateOf(WalletConfig.rules(context)) }
     var appRules by remember { mutableStateOf(AppConfig.rules(context)) }
@@ -323,9 +379,12 @@ enum class PickerTarget { WALLET, APP }
         Slider(value = speechRate, onValueChange = { speechRate = it; DisplayPreferences.setSpeechRateMultiplier(context, it) }, valueRange = 0.5f..2.0f, steps = 14)
         TextButton(onClick = { runCatching { context.startActivity(Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) } }) { Text("Instalar más voces") }
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { TextButton(onClick = { activity.save("${AppInfo.REPORT_BASENAME}_${WalletNotificationStore.timestampForFile()}.txt", WalletNotificationStore.exportText()) }) { Text("Guardar Historial") }; TextButton(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }) { Text("Compartir Historial") } }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { TextButton(onClick = { activity.save("${AppInfo.REPORT_BASENAME}_${WalletNotificationStore.timestampForFile()}.csv", WalletNotificationStore.exportCsv(), "text/csv") }) { Text("Guardar CSV") }; TextButton(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }) { Text("Compartir CSV") } }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { TextButton(onClick = { activity.save(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }) { Text("Guardar Log") }; TextButton(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }) { Text("Compartir Log") } }
+        val blue = ButtonDefaults.buttonColors(containerColor = AccentBlue)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }, colors = blue) { Text("Compartir Historial") }
+            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }, colors = blue) { Text("Compartir CSV") }
+        }
+        Button(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }, colors = blue) { Text("Compartir Log") }
         Button(onClick = { activity.shareApk() }) { Text("Compartir Aplicación") }
         Spacer(Modifier.height(12.dp))
         Text("Copia de seguridad (config., billeteras, apps)", style = MaterialTheme.typography.titleMedium)
@@ -363,8 +422,14 @@ enum class PickerTarget { WALLET, APP }
         Text("Telegram", style = MaterialTheme.typography.titleMedium)
         Text("Envía por Telegram un CSV con las notificaciones nuevas cada cierto tiempo, y recibe avisos remotos vía /notificar TODOS|sucursal mensaje.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(deviceLabel, { deviceLabel = it }, label = { Text("Nombre de sucursal/dispositivo") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(tgToken, { tgToken = it }, label = { Text("Token del bot") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(tgChatId, { tgChatId = it }, label = { Text("Chat ID") }, modifier = Modifier.fillMaxWidth())
+        if (adminUnlocked) {
+            OutlinedTextField(tgToken, { tgToken = it }, label = { Text("Token del bot") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(tgChatId, { tgChatId = it }, label = { Text("Chat ID") }, modifier = Modifier.fillMaxWidth())
+        } else {
+            Text("Token: " + if (tgToken.isBlank()) "(no configurado)" else "•••• configurado", style = MaterialTheme.typography.bodySmall)
+            Text("Chat ID: " + if (tgChatId.isBlank()) "(no configurado)" else "•••• configurado", style = MaterialTheme.typography.bodySmall)
+            Text("Toca 3 veces el logo de la pantalla principal para editarlos.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
         OutlinedTextField(tgInterval, { tgInterval = it.filter { c -> c.isDigit() } }, label = { Text("Intervalo (minutos, mínimo 15)") }, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
@@ -382,6 +447,10 @@ enum class PickerTarget { WALLET, APP }
                     tgStatus = if (ok) "Mensaje de prueba enviado." else "No se pudo enviar — revisa token/chat id."
                 }
             }) { Text("Enviar mensaje de prueba") }
+            OutlinedButton(onClick = {
+                TelegramSyncWorker.runOnce(context)
+                tgStatus = "Sincronizando ahora (revisa comandos y envía el CSV pendiente, sin esperar el intervalo)..."
+            }) { Text("Sincronizar ahora") }
         }
         if (tgStatus != null) Text(tgStatus!!, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))

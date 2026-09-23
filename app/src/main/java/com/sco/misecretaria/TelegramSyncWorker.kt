@@ -72,8 +72,26 @@ class TelegramSyncWorker(context: Context, params: WorkerParameters) : Coroutine
     }
 
     private fun handleCommand(text: String, deviceLabel: String) {
+        handleHelpCommand(text, deviceLabel)
         handleNotifyCommand(text, deviceLabel)
         handleRenameCommand(text, deviceLabel)
+    }
+
+    /**
+     * /help o /start — lista los comandos disponibles. Responde CADA dispositivo que comparte
+     * el bot (no hay forma de elegir "un solo respondedor" sin un servidor propio) — con pocas
+     * sucursales es aceptable; si llega a haber muchas, revisar si conviene limitarlo.
+     */
+    private fun handleHelpCommand(text: String, deviceLabel: String) {
+        val normalized = text.trim().lowercase()
+        if (normalized != "/help" && normalized != "/start") return
+        val help = "🤖 miSecretaria — comandos del bot:\n\n" +
+            "/notificar TODOS <mensaje>\nAvisa (voz + notificación) a TODAS las sucursales conectadas.\n\n" +
+            "/notificar <sucursal> <mensaje>\nAvisa solo a esa sucursal (usa su nombre o código, ej. MS-7K2F9Q).\n\n" +
+            "/renombrar <código_actual> <nombre_nuevo>\nCambia el nombre de una sucursal (el código/nombre debe coincidir exacto).\n\n" +
+            "/help\nMuestra esta ayuda.\n\n" +
+            "Esta sucursal se llama: $deviceLabel"
+        TelegramClient.sendMessage(TelegramConfig.botToken(applicationContext), TelegramConfig.chatId(applicationContext), help)
     }
 
     /** /notificar TODOS|<sucursal> <mensaje> — avisa a un dispositivo específico o a todos. */

@@ -30,6 +30,17 @@ object BackupManager {
         AppConfig.rules(context).forEach { r -> apps.put(JSONObject().put("name", r.name).put("packageId", r.packageId).put("enabled", r.enabled)) }
         root.put("apps", apps)
 
+        // Token/Chat ID de Telegram, para configurar otras sucursales sin escribirlos a mano
+        // (ver README "Telegram"). El nombre de sucursal NO se incluye a propósito: cada
+        // teléfono debe conservar el suyo, no el del dispositivo que exportó el backup.
+        if (TelegramConfig.isConfigured(context)) {
+            val telegram = JSONObject()
+            telegram.put("botToken", TelegramConfig.botToken(context))
+            telegram.put("chatId", TelegramConfig.chatId(context))
+            telegram.put("intervalMinutes", TelegramConfig.intervalMinutes(context))
+            root.put("telegram", telegram)
+        }
+
         return root.toString(2)
     }
 
@@ -57,6 +68,12 @@ object BackupManager {
                 AppConfig.add(context, o.optString("name"), o.optString("packageId"))
                 AppConfig.setEnabled(context, o.optString("name"), o.optBoolean("enabled", true))
             }
+        }
+        root.optJSONObject("telegram")?.let { t ->
+            TelegramConfig.setBotToken(context, t.optString("botToken"))
+            TelegramConfig.setChatId(context, t.optString("chatId"))
+            TelegramConfig.setIntervalMinutes(context, t.optLong("intervalMinutes", 30L))
+            if (TelegramConfig.isConfigured(context)) TelegramSyncWorker.schedule(context)
         }
     }
 }
