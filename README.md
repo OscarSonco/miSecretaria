@@ -66,7 +66,10 @@ bórrala con "Quitar" y vuelve a agregarla desde el selector.
 ### Telegram (opcional)
 
 Permite que la app te mande por Telegram un CSV periódico con las notificaciones nuevas de
-cada sucursal, y que tú le mandes avisos a una o todas las sucursales desde tu chat.
+cada sucursal, y que tú le mandes avisos a una o todas las sucursales desde tu chat. Los
+comandos (`/notificar`, `/renombrar`, `/help`) se procesan casi al instante mientras el
+teléfono tenga el servicio de notificaciones activo — no hace falta esperar ni tocar
+"Sincronizar ahora" para eso (ese botón sigue sirviendo para el CSV y como respaldo).
 
 **El Token y el Chat ID están protegidos con PIN** (ver "PIN de administrador" abajo) — solo tú
 puedes verlos o cambiarlos; el personal de la sucursal ve el campo tapado ("•••• configurado").
@@ -91,10 +94,12 @@ puedes verlos o cambiarlos; el personal de la sucursal ve el campo tapado ("•�
 - Revisa que Token y Chat ID estén realmente guardados (toca "Sincronizar ahora" y espera unos
   segundos).
 - Ve a Ajustes del sistema → Batería → miSecretaria → "Sin restricciones". Algunos teléfonos
-  (sobre todo Tecno/Infinix/Xiaomi y similares) matan las tareas en segundo plano por defecto,
-  y eso incluye la revisión periódica de Telegram.
-- El intervalo mínimo entre revisiones automáticas es de 15 minutos — si no quieres esperar,
-  usa "Sincronizar ahora".
+  (sobre todo Tecno/Infinix/Xiaomi y similares) matan las tareas en segundo plano por defecto.
+- Si mandaste el comando bien pero de todos modos nada pasa, revisa que lo hayas escrito TODO
+  en un solo mensaje (ver advertencia arriba en "Comandos") — es el error más común.
+
+**Nota:** si además del comando el bot te contesta con un mensaje de error explicando la
+sintaxis, quiere decir que sí está funcionando — solo el formato del comando estaba mal.
 
 **Varias sucursales, un solo bot — sin escribir el token en cada teléfono, dos formas:**
 
@@ -114,13 +119,20 @@ Todas las sucursales mandan su CSV al mismo chat, y puedes avisarles a todas o a
 particular (ver comandos abajo).
 
 **Comandos que puedes escribirle al bot desde tu Telegram:**
+
+⚠️ **Muy importante: escribe el comando Y el mensaje juntos, en UN SOLO envío** — no manden
+"/notificar TODOS" y luego, en otro mensaje aparte, el texto. Si lo mandas en dos mensajes
+separados, el bot no reconoce ninguno de los dos y no hace nada (no te avisa del error salvo
+que ya tengas v2.15+, que sí te responde con la sintaxis correcta si te equivocas).
+
 - `/help` (o `/start`) — te devuelve la lista completa de comandos.
 - `/notificar TODOS <mensaje>` — el mensaje se anuncia (voz + notificación) en TODAS las
-  sucursales conectadas.
-- `/notificar <nombre_de_sucursal> <mensaje>` — solo se anuncia en esa sucursal.
+  sucursales conectadas. Ejemplo real: `/notificar TODOS Cerramos a las 8pm hoy`
+- `/notificar <nombre_de_sucursal> <mensaje>` — solo se anuncia en esa sucursal. Ejemplo:
+  `/notificar MS-7K2F9Q Reunión a las 3pm`
 - `/renombrar <código_actual> <nombre_nuevo>` — si una sucursal se quedó con el código
   alfanumérico automático (ej. `MS-7K2F9Q`) y quieres darle un nombre más claro, así se lo
-  cambias sin tocar el teléfono.
+  cambias sin tocar el teléfono. Ejemplo: `/renombrar MS-7K2F9Q Sucursal Centro`
 
 ### PIN de administrador
 

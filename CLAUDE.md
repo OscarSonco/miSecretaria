@@ -4,12 +4,65 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-23)
 
-Código en disco = v2.14 (`versionCode=2014`) **con cambios sin publicar** — falta que el
-usuario corra el release (ver Paso 4). Regla de trabajo con el usuario: ADB es SOLO para diagnóstico
-técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log interno, `content query` sobre
-MediaStore) — **nunca para instalar**; el usuario instala siempre por su cuenta, vía "Buscar
-actualización" en la app. `CLAUDE.md` (memoria técnica) y `README.md` (manual de uso) se
-actualizan en cada cambio, no solo al cerrar una tanda.
+Código en disco = v2.16 (`versionCode=2016`) — el usuario publicó 2.14, y 2.15/2.16 son fixes
+de la misma tarde todavía sin publicar (build Interna ya generada para ambas). Reglas de
+trabajo con el usuario:
+- ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
+  interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
+  siempre por su cuenta, vía "Buscar actualización" en la app.
+- `CLAUDE.md` (memoria técnica) y `README.md` (manual de uso) se actualizan en cada cambio, no
+  solo al cerrar una tanda.
+- **Toda versión nueva (código listo + versionCode/versionName subidos) debe ir acompañada de
+  `./build_interna.sh`** (2026-09-23, pedido explícito del usuario) — no solo cuando lo pida:
+  genera `Releases/miSecretariaV(x.x)-debug_Interna.apk` con el token/Chat ID reales
+  pre-rellenados, para que el usuario la tenga lista y la reparta a mano a sus sucursales.
+  Después de correrlo, volver a compilar `assembleDebug` normal (sin el flag) para que el
+  build por defecto quede sin secretos otra vez.
+- **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
+  [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
+  sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.15/v2.16 (2026-09-23, tarde) — comandos de Telegram: diagnóstico de uso + tiempo real
+
+- 🩺 **Diagnóstico: `/notificar TODOS` "no hace nada".** El usuario mandó `/notificar TODOS` y
+  el mensaje ("Hola mundo") como DOS mensajes de Telegram separados. El regex
+  (`^/notificar\s+(\S+)\s+(.+)$`) exige todo en un solo mensaje — si no calza, antes se
+  ignoraba en silencio. Confirmado leyendo el backlog real de `getUpdates` contra
+  `processed_update_ids`.
+- ✅ **v2.15 — el bot ya responde si el formato está mal**, en vez de quedarse callado:
+  `handleNotifyCommand`/`handleRenameCommand` ahora revisan si el texto empieza con
+  `/notificar`/`/renombrar` y, si no matchea el patrón completo, contestan con la sintaxis
+  correcta y un ejemplo. El `/help` también se reescribió con ejemplos concretos y una
+  advertencia en mayúsculas sobre mandar todo junto.
+- ✅ **v2.16 — comandos de Telegram en (casi) tiempo real, ya no hay que esperar el intervalo
+  ni tocar "Sincronizar ahora"** (pedido explícito del usuario). Rediseño:
+  - Lógica de comandos extraída a `TelegramCommandHandler.kt` (objeto compartido, recibe
+    `context` explícito) — antes vivía dentro de `TelegramSyncWorker`.
+  - `TelegramClient.getUpdates` ahora acepta `timeoutSeconds` (long-polling real de Telegram:
+    la conexión queda abierta hasta 25s esperando un mensaje nuevo, en vez de responder al
+    toque). `readTimeout` del cliente HTTP se ajusta con margen (`timeoutSeconds + 10`) para no
+    cortar la conexión antes de que Telegram conteste.
+  - `WalletNotificationListener` (el servicio que YA corre siempre mientras hay permiso de
+    notificaciones) ahora tiene un `CoroutineScope` propio y lanza un loop infinito
+    (`telegramLongPollLoop`) en `onCreate()`, cancelado en `onDestroy()`: pide `getUpdates` con
+    `timeout=25s`, procesa lo que llegue con `TelegramCommandHandler`, y repite. Si Telegram no
+    está configurado, espera 30s entre intentos sin martillar la red.
+  - `TelegramSyncWorker` (el trabajo periódico, cada 30 min por defecto) queda como
+    **respaldo**: sigue revisando comandos además de mandar el CSV, por si el loop en tiempo
+    real se corta (ej. Android mata el servicio). Mismo dedupe
+    (`TelegramConfig.isUpdateProcessed`) para los dos caminos, así que no hay riesgo de
+    procesar un comando dos veces.
+  - **Sin probar en el teléfono todavía** — falta confirmar que el loop responde de verdad casi
+    al instante, y que no se corta solo tras un rato con la pantalla apagada (este Tecno no
+    está en la whitelist de batería, aunque el `WorkManager` sí lo estaba — un
+    `CoroutineScope` dentro de un servicio normal podría comportarse distinto, hay que
+    verificar en vivo).
+- ✅ **"Aviso remoto" ya no se anuncia en voz alta al leer un `/notificar`** (pedido explícito
+  del usuario). Antes `SpeechEngine.speak(item)` anteponía "Aviso remoto, " (mismo prefijo que
+  usan las apps generales tipo WhatsApp). Ahora se usa `SpeechEngine.speakText(context,
+  message)` — lee el mensaje tal cual, como en la pantalla "Leer". El historial SÍ sigue
+  guardando/mostrando "Aviso remoto" como categoría (no se tocó esa parte, la duda era sobre lo
+  que se lee en voz alta).
 
 ### Tanda v2.13 (pedida por el usuario 2026-09-23) — instalada y probada en el teléfono
 
@@ -263,19 +316,19 @@ presione "Enviar mensaje de prueba" en Configuración. Alternativa descartada po
 un bot (token) por sucursal ("sería problemático").
 
 🔄 **Paso 4 — Cerrar la tanda (Claude + usuario).** 2.11/2.12 nunca se publicaron por separado
-(absorbidas). **2.13 SÍ se publicó** (usuario corrió el release, GitHub Release + `update.json`
-+ Firebase confirmados, ver git log "Release v2.13") y se instaló solo — probó varias cosas en
-vivo (ver arriba), pero encontró el bug real de "Sincronizar ahora" invisible. Corregido, y
-subido a `versionCode=2014`/`versionName="2.14"` ✅ (2026-09-23) — compila limpio en ambos
-checkouts. Ya NO se crean scripts `-instalar.sh` por versión (ver "Cómo compilar e instalar").
-Falta:
+(absorbidas). **2.13 y 2.14 SÍ se publicaron** (usuario corrió el release, GitHub Releases +
+`update.json` + Firebase confirmados). Después de publicar 2.14, se encontraron más cosas en
+vivo (bot que no respondía a `/notificar` mal formado, comandos que tardaban hasta 30 min) —
+arregladas en 2.15/2.16, **compiladas y con build Interna generada, pero AÚN sin publicar**.
+Ya NO se crean scripts `-instalar.sh` por versión (ver "Cómo compilar e instalar"). Falta:
 1. El usuario prueba en el teléfono lo que sigue sin verificar en vivo: permiso de medios +
-   detección real de WhatsApp (Paso 2, todavía no probado), y ahora también el fix del botón
-   "Sincronizar ahora" (2.14) y los defaults de billeteras reales (solo aplican a instalaciones
-   nuevas, no a este teléfono que ya tiene su propia config guardada).
+   detección real de WhatsApp (Paso 2, todavía no probado), el long-polling de Telegram en
+   tiempo real (2.16, recién hecho, sin probar), y los defaults de billeteras reales (solo
+   aplican a instalaciones nuevas, no a este teléfono que ya tiene su propia config guardada).
 2. Checklist rápido: Atrás físico, íconos/paquetes, `Bs 2,392.69`, ícono nuevo, "Quitar",
-   `/renombrar`, `/notificar`, `/help`, triple-tap al logo + PIN `230985`, "Sincronizar ahora"
-   (ahora en su propia línea, visible).
+   `/renombrar`, `/notificar` (todo en un solo mensaje), `/help`, triple-tap al logo + PIN
+   `230985`, "Sincronizar ahora" (ahora en su propia línea, visible), y que `/notificar` llegue
+   casi al instante sin tocar "Sincronizar ahora".
 3. El usuario presiona `miSecretaria_Update.desktop` (o corre `./release.sh`) para publicar
    2.14 — **recordar SIEMPRE subir versionCode/versionName al hacer un cambio de código,
    aunque sea chico**, para que "Buscar actualización" pueda distinguirlo (la lección de este
@@ -315,7 +368,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2014`, `versionName="2.14"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2016`, `versionName="2.16"` (ver `app/build.gradle.kts`,
   subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
   presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
   de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
@@ -354,16 +407,18 @@ resto (compilar, publicar en GitHub Releases, actualizar `update.json`, desplega
 Hosting, commit+push) lo hace `release.sh` / `miSecretaria_Update.desktop` — ver "Flujo de
 release" más abajo.
 
-**Build "Interna" (2026-09-23, con Token/Chat ID de Telegram pre-rellenados):**
+**Build "Interna" (2026-09-23, con Token/Chat ID de Telegram pre-rellenados) — CORRER EN
+CADA VERSIÓN NUEVA, no solo si el usuario lo pide (pedido explícito 2026-09-23):**
 ```bash
 cd ~/Documents/miSecretaria
 cp secrets.properties.example secrets.properties   # solo la primera vez
 # editar secrets.properties con botToken/chatId reales (archivo en .gitignore, no se commitea)
 ./build_interna.sh
+./gradlew assembleDebug   # sin flags, para que el build por defecto vuelva a quedar sin secretos
 ```
 Genera `Releases/miSecretariaV(x.x)-debug_Interna.apk`. **Nunca lo suba release.sh ni se sube a
 GitHub** — se pasa a mano (USB/Bluetooth) a los teléfonos de sucursal. Ver detalle técnico en
-la sección v2.13 más arriba.
+la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
 
 ## Mapa de archivos (app/src/main/java/com/sco/misecretaria/)
 
@@ -390,7 +445,11 @@ la sección v2.13 más arriba.
   abajo). Actualiza el "heartbeat" (`DisplayPreferences.touchHeartbeat`) en cada evento, para
   que la Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)`
   (llamado desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener
-  si Android lo mató.
+  si Android lo mató. **Desde v2.16, también corre el long-polling de Telegram en tiempo
+  real:** tiene su propio `CoroutineScope` (`serviceScope`), lanzado en `onCreate` y cancelado
+  en `onDestroy`, con un loop infinito (`telegramLongPollLoop`) que pide `getUpdates` con
+  `timeout=25s` y delega en `TelegramCommandHandler` — se aprovecha que este servicio YA corre
+  todo el tiempo que la app tenga permiso de notificaciones, sin necesitar un mecanismo nuevo.
 - `WalletNotificationNotifier.kt` — notificación del sistema (top deslizable) + `fullScreenIntent`
   (solo para pagos, si "Pantalla completa" está activado).
 - `WalletOverlay.kt` — el aviso flotante ("Pantalla de aviso"), vistas nativas de Android
@@ -419,8 +478,15 @@ la sección v2.13 más arriba.
   `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que encuentra
   (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h, pendiente).
 - `TelegramClient.kt` — cliente mínimo (sin librerías) de la API HTTP de Telegram Bot:
-  `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (polling, sin
-  webhook). Todo con `HttpURLConnection` + `org.json`.
+  `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (con `timeoutSeconds`
+  opcional desde v2.16 para long-polling real — conexión abierta hasta que llega un mensaje o
+  se agota el tiempo). Todo con `HttpURLConnection` + `org.json`.
+- `TelegramCommandHandler.kt` (nuevo v2.16) — lógica de `/help`, `/notificar`, `/renombrar`
+  extraída de `TelegramSyncWorker` a un objeto compartido (recibe `context` explícito), usado
+  tanto por el long-polling en tiempo real (`WalletNotificationListener`) como por el respaldo
+  periódico (`TelegramSyncWorker`). Si `/notificar`/`/renombrar` no calzan con el patrón
+  completo (ej. el usuario mandó el comando y el mensaje en dos envíos separados de Telegram),
+  responde con la sintaxis correcta y un ejemplo en vez de quedarse callado.
 - `TelegramConfig.kt` — guarda token del bot / chat id en `SharedPreferences`.
   **Rediseño Paso 3 (2026-09-23, un solo bot para todas las sucursales, decisión del usuario):**
   se cambió `lastUpdateId` (un offset que se le confirmaba a Telegram) por
@@ -428,18 +494,15 @@ la sección v2.13 más arriba.
   dispositivo, tope 300). Motivo: al confirmar el offset ante Telegram, el servidor deja de
   entregar esos mensajes a CUALQUIER otro teléfono que use el mismo bot — el primero que
   consultaba "se comía" los comandos y los demás nunca los veían.
-- `TelegramSyncWorker.kt` — `Worker` de WorkManager que corre periódicamente: envía el CSV
-  del historial al bot y revisa comandos entrantes (`getUpdates`). **Ahora pide siempre
-  `offset=0`** (nunca confirma nada ante Telegram) y filtra los repetidos con
-  `TelegramConfig.isUpdateProcessed` — así el mismo lote de comandos sigue disponible para
-  TODOS los teléfonos que comparten el bot, no solo el primero que consulta. Comandos
-  soportados:
-  - `/notificar TODOS|<sucursal> <mensaje>` — dispara notificación/voz personalizada en el
-    dispositivo(s) destino.
-  - `/renombrar <código_actual> <nombre_nuevo>` — renombra el `deviceLabel` de una sucursal
-    (solo si el código coincide).
-  Se arranca desde `MainActivity.onCreate`. Dependencia `androidx.work:work-runtime-ktx:2.11.2`
-  agregada en `app/build.gradle.kts`.
+- `TelegramSyncWorker.kt` — `Worker` de WorkManager que corre periódicamente (cada
+  `intervalMinutes`, mínimo 15, default 30): envía el CSV del historial y revisa comandos como
+  **respaldo** del long-polling en tiempo real (ver `WalletNotificationListener`, v2.16) — por
+  si Android mata el servicio y se corta el loop. **Pide siempre `offset=0`** (nunca confirma
+  nada ante Telegram) y filtra los repetidos con `TelegramConfig.isUpdateProcessed` — mismo
+  dedupe que el loop en tiempo real, así que no hay riesgo de procesar un comando dos veces.
+  La lógica de los comandos en sí vive en `TelegramCommandHandler.kt`. Se arranca desde
+  `MainActivity.onCreate`. Dependencia `androidx.work:work-runtime-ktx:2.11.2` agregada en
+  `app/build.gradle.kts`.
 - `DisplayPreferences.kt` — todas las preferencias del usuario (switches, perfil de voz,
   velocidad, heartbeat, `deviceLabel` —nombre de sucursal, se genera un código alfanumérico
   aleatorio tipo `MS-7K2F9Q` si no fue personalizado, renombrable por Telegram con

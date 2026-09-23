@@ -9,12 +9,20 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.UUID
 
 private const val STALE_NOTIFICATION_MS = 2 * 60 * 1000L
+private const val TELEGRAM_LONGPOLL_TIMEOUT_SEC = 25L
 
 class WalletNotificationListener : NotificationListenerService() {
     companion object {
@@ -24,11 +32,46 @@ class WalletNotificationListener : NotificationListenerService() {
         }
     }
 
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     override fun onCreate() {
         super.onCreate()
         WalletNotificationStore.init(applicationContext)
         SpeechEngine.init(this)
         ScoSecretariaLogger.info(this, "Servicio de notificaciones iniciado")
+        serviceScope.launch { telegramLongPollLoop() }
+    }
+
+    /**
+     * Comandos de Telegram casi en tiempo real mientras este servicio esté vivo: usa
+     * long-polling (`timeout=25s` en `getUpdates`, la conexión queda abierta esperando un
+     * mensaje nuevo en vez de consultar a cada rato) para no depender del intervalo de
+     * `TelegramSyncWorker` (que igual sigue como respaldo si este loop se corta, ej. si
+     * Android mata el servicio). Mismo dedupe (`TelegramConfig.isUpdateProcessed`) que el
+     * respaldo, así que no hay riesgo de procesar un comando dos veces.
+     */
+    private suspend fun telegramLongPollLoop() {
+        while (serviceScope.isActive) {
+            val token = TelegramConfig.botToken(applicationContext)
+            val chatId = TelegramConfig.chatId(applicationContext)
+            if (token.isBlank() || chatId.isBlank()) {
+                delay(30_000L)
+                continue
+            }
+            val deviceLabel = DisplayPreferences.deviceLabel(applicationContext)
+            val updates = runCatching {
+                TelegramClient.getUpdates(token, offset = 0, timeoutSeconds = TELEGRAM_LONGPOLL_TIMEOUT_SEC)
+            }.getOrDefault(emptyList())
+            for (update in updates) {
+                if (TelegramConfig.isUpdateProcessed(applicationContext, update.updateId)) continue
+                TelegramConfig.markUpdateProcessed(applicationContext, update.updateId)
+                if (update.chatId != chatId) continue
+                TelegramCommandHandler.handle(applicationContext, update.text.trim(), deviceLabel)
+            }
+            // Si no hubo nada (o falló la conexión) esperar un poco antes de reintentar, para
+            // no martillar la red si Telegram/la red están caídos.
+            if (updates.isEmpty()) delay(1_000L)
+        }
     }
 
     override fun onListenerConnected() {
@@ -134,5 +177,5 @@ class WalletNotificationListener : NotificationListenerService() {
         return null
     }
 
-    override fun onDestroy() { SpeechEngine.shutdown(); ScoSecretariaLogger.info(this, "Servicio detenido"); super.onDestroy() }
+    override fun onDestroy() { serviceScope.cancel(); SpeechEngine.shutdown(); ScoSecretariaLogger.info(this, "Servicio detenido"); super.onDestroy() }
 }

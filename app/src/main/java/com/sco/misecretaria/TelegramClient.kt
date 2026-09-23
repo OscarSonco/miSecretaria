@@ -54,10 +54,18 @@ object TelegramClient {
         ok
     }.getOrDefault(false)
 
-    fun getUpdates(token: String, offset: Long): List<TelegramUpdate> = runCatching {
-        val url = URL("${base(token)}/getUpdates?offset=$offset&timeout=0")
+    /**
+     * `timeoutSeconds` > 0 activa "long polling" de Telegram: la conexión queda abierta hasta
+     * que llega un mensaje nuevo o se agota el tiempo, lo que permita respuestas casi
+     * instantáneas sin tener que pedir cada pocos segundos. El timeout HTTP del cliente se deja
+     * con margen extra para no cortar la conexión antes de que Telegram responda.
+     */
+    fun getUpdates(token: String, offset: Long, timeoutSeconds: Long = 0): List<TelegramUpdate> = runCatching {
+        val url = URL("${base(token)}/getUpdates?offset=$offset&timeout=$timeoutSeconds")
         val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"; connectTimeout = 10000; readTimeout = 10000
+            requestMethod = "GET"
+            connectTimeout = 10000
+            readTimeout = ((timeoutSeconds + 10) * 1000).toInt()
         }
         val text = conn.inputStream.bufferedReader().use { it.readText() }
         conn.disconnect()
