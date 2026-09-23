@@ -1,7 +1,7 @@
 # miSecretaria — Manual de uso
 
 miSecretaria escucha las notificaciones de tu teléfono, detecta pagos de billeteras móviles
-(YAPE, ZAS, YOLO, YASTA, AlToke, etc.) y mensajes de apps que elijas (WhatsApp, SMS, etc.),
+(ZAS, Yasta, Yape, altoke, Bille, Yolo Pago, etc.) y mensajes de apps que elijas (WhatsApp, SMS, etc.),
 los **lee en voz alta**, los guarda en un historial dentro de la app y — si lo configuras —
 te avisa por Telegram y te deja mandar avisos remotos a una o varias sucursales.
 

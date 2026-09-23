@@ -4,14 +4,47 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-23)
 
-Código en disco = v2.13 (`versionCode=2013`) **con cambios sin publicar** — falta que el
+Código en disco = v2.14 (`versionCode=2014`) **con cambios sin publicar** — falta que el
 usuario corra el release (ver Paso 4). Regla de trabajo con el usuario: ADB es SOLO para diagnóstico
 técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log interno, `content query` sobre
 MediaStore) — **nunca para instalar**; el usuario instala siempre por su cuenta, vía "Buscar
 actualización" en la app. `CLAUDE.md` (memoria técnica) y `README.md` (manual de uso) se
 actualizan en cada cambio, no solo al cerrar una tanda.
 
-### Tanda v2.13 (pedida por el usuario 2026-09-23) — compilada, SIN probar en el teléfono todavía
+### Tanda v2.13 (pedida por el usuario 2026-09-23) — instalada y probada en el teléfono
+
+El usuario instaló 2.13 (no quedó claro si vía "Buscar actualización" o a mano; `lastUpdateTime`
+del paquete confirma 2026-09-23 13:26) y **borró los datos de la app para empezar de cero**.
+Verificado EN VIVO tras eso:
+- ✅ Botones azules, PIN de administrador y `/help` confirmados en pantalla (captura de
+  Configuración con "Compartir Log" en azul y las 6 billeteras con "Quitar").
+- ✅ **El bot de Telegram SÍ funciona** (independientemente del bug de abajo). El usuario
+  reportó "solo un momento funcionó" — diagnóstico (comparando `getUpdates` del bot vs.
+  `processed_update_ids` guardados en el teléfono): NO es un bug de conectividad. El trabajo
+  periódico de WorkManager está bien agendado (`dumpsys jobscheduler`: `Doze whitelisted:
+  true`, sin restricciones — la preocupación anterior sobre batería en este Tecno no aplicó) y
+  procesó correctamente varios `/start`/`/help` reales del usuario entre las 12:42 y las 13:30.
+  Sus últimos 4 mensajes (13:32-13:34) quedaron pendientes simplemente porque el siguiente
+  ciclo automático (intervalo 30 min) todavía no llegaba — de ahí la sensación de "se cortó".
+- 🐛→✅ **Bug real encontrado (2026-09-23, tarde): "Sincronizar ahora" NO se veía.** El usuario
+  mandó captura de Configuración → Telegram mostrando solo "Guardar y activar" y "Enviar
+  mensaje de prueba" — el botón nuevo no estaba. Causa: se agregó como TERCER botón a un `Row`
+  que ya no entraba en el ancho de pantalla (labels largos) — Compose no envuelve `Row` por
+  defecto, así que quedaba recortado fuera de vista, invisible e inalcanzable (no era un
+  problema de que "faltara" el botón: se publicó igual en el commit "Release v2.13", pero
+  nadie podía verlo ni tocarlo). Corregido en `MainActivity.kt`: el primer `Row`
+  (Guardar/Enviar) ahora tiene `horizontalScroll` de respaldo, y "Sincronizar ahora" pasó a su
+  propia línea debajo, siempre visible. **Requirió subir a `versionCode=2014`/`"2.14"`** — el
+  fix anterior (agregar el botón) se había hecho SIN subir versión, así que quedó indistinguible
+  del build ya publicado y el usuario nunca pudo recibirlo por su cuenta.
+- ✅ **`WalletConfig.defaults` actualizado con paquetes reales** (2026-09-23, tarde): el usuario
+  re-agregó las 6 billeteras desde el selector de apps tras borrar datos, revelando los
+  paquetes reales de su teléfono — ya no hace falta adivinar ni dejar vacío:
+  `ZAS→bec.vdb.direct`, `Yasta→com.busa.wallet`, `Yape→com.bcp.bo.wallet`,
+  `altoke→com.bancosol.altoke`, `Bille→com.walletapp.mobile`, `Yolo Pago→bo.com.yolopago`.
+  Reemplaza los defaults viejos (YAPE/YASTA/AlToke con `packageId=""`, nunca detectaban nada).
+  Solo afecta instalaciones NUEVAS sin config guardada — el teléfono del usuario ya tiene estas
+  mismas 6 guardadas a mano, no por los defaults.
 - ✅ Botones "Configuración"/"Leer" en Home, y "Compartir Historial/CSV/Log" en Configuración
   → ahora en azul (`AccentBlue` en `ui/theme/Color.kt`). Antes salían café/crema porque
   `ScoSecretariaTheme` usa `dynamicColor = true` (Material You, colores del wallpaper del
@@ -229,17 +262,24 @@ Falta probar con el bot real del usuario (`t.me/miSecretariaPerfecta_bot`, Chat 
 presione "Enviar mensaje de prueba" en Configuración. Alternativa descartada por el usuario:
 un bot (token) por sucursal ("sería problemático").
 
-🔄 **Paso 4 — Cerrar la tanda (Claude + usuario).** `versionCode=2013`/`versionName="2.13"`
-✅ ya subido en `app/build.gradle.kts` y compila limpio (2026-09-23). 2.11 nunca se compiló ni
-publicó, y 2.12 tampoco se llegó a publicar por separado — ambas quedan absorbidas en 2.13.
-Ya NO se crean scripts `-instalar.sh` por versión (ver "Cómo compilar e instalar"). Falta:
-1. El usuario prueba en el teléfono TODO lo que sigue sin verificar en vivo: permiso de medios
-   + detección real de WhatsApp (Paso 2), guardar/probar el bot de Telegram (Paso 3), y toda la
-   tanda v2.13 (botones azules, PIN de administrador, `/help` del bot, YOLO viejo).
-2. Checklist rápido: Atrás físico (Configuración/Leer/selector), íconos y paquetes en las
-   listas, `Bs 2,392.69`, ícono nuevo, botón "Quitar" en Billeteras/Apps, `/renombrar`,
-   `/notificar`, `/help`, triple-tap al logo + PIN `230985`.
-3. El usuario presiona `miSecretaria_Update.desktop` (o corre `./release.sh`) para publicar.
+🔄 **Paso 4 — Cerrar la tanda (Claude + usuario).** 2.11/2.12 nunca se publicaron por separado
+(absorbidas). **2.13 SÍ se publicó** (usuario corrió el release, GitHub Release + `update.json`
++ Firebase confirmados, ver git log "Release v2.13") y se instaló solo — probó varias cosas en
+vivo (ver arriba), pero encontró el bug real de "Sincronizar ahora" invisible. Corregido, y
+subido a `versionCode=2014`/`versionName="2.14"` ✅ (2026-09-23) — compila limpio en ambos
+checkouts. Ya NO se crean scripts `-instalar.sh` por versión (ver "Cómo compilar e instalar").
+Falta:
+1. El usuario prueba en el teléfono lo que sigue sin verificar en vivo: permiso de medios +
+   detección real de WhatsApp (Paso 2, todavía no probado), y ahora también el fix del botón
+   "Sincronizar ahora" (2.14) y los defaults de billeteras reales (solo aplican a instalaciones
+   nuevas, no a este teléfono que ya tiene su propia config guardada).
+2. Checklist rápido: Atrás físico, íconos/paquetes, `Bs 2,392.69`, ícono nuevo, "Quitar",
+   `/renombrar`, `/notificar`, `/help`, triple-tap al logo + PIN `230985`, "Sincronizar ahora"
+   (ahora en su propia línea, visible).
+3. El usuario presiona `miSecretaria_Update.desktop` (o corre `./release.sh`) para publicar
+   2.14 — **recordar SIEMPRE subir versionCode/versionName al hacer un cambio de código,
+   aunque sea chico**, para que "Buscar actualización" pueda distinguirlo (la lección de este
+   bug: un fix sin subir versión es indistinguible del build ya publicado).
 
 ### Hallazgos de la verificación del 2026-09-23 (lectura estática del código)
 - **Confirmado en código:** `versionCode=2011`; sucursal aleatoria (`MS-XXXXXX`);
@@ -275,7 +315,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2013`, `versionName="2.13"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2014`, `versionName="2.14"` (ver `app/build.gradle.kts`,
   subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
   presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
   de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de

@@ -431,7 +431,7 @@ enum class PickerTarget { WALLET, APP }
             Text("Toca 3 veces el logo de la pantalla principal para editarlos.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
         OutlinedTextField(tgInterval, { tgInterval = it.filter { c -> c.isDigit() } }, label = { Text("Intervalo (minutos, mínimo 15)") }, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 DisplayPreferences.setDeviceLabel(context, deviceLabel)
                 TelegramConfig.setBotToken(context, tgToken)
@@ -447,11 +447,12 @@ enum class PickerTarget { WALLET, APP }
                     tgStatus = if (ok) "Mensaje de prueba enviado." else "No se pudo enviar — revisa token/chat id."
                 }
             }) { Text("Enviar mensaje de prueba") }
-            OutlinedButton(onClick = {
-                TelegramSyncWorker.runOnce(context)
-                tgStatus = "Sincronizando ahora (revisa comandos y envía el CSV pendiente, sin esperar el intervalo)..."
-            }) { Text("Sincronizar ahora") }
         }
+        Spacer(Modifier.height(6.dp))
+        OutlinedButton(onClick = {
+            TelegramSyncWorker.runOnce(context)
+            tgStatus = "Sincronizando ahora (revisa comandos y envía el CSV pendiente, sin esperar el intervalo)..."
+        }) { Text("Sincronizar ahora") }
         if (tgStatus != null) Text(tgStatus!!, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))
         Text("Publicidad bloqueada", style = MaterialTheme.typography.titleMedium)

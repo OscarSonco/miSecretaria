@@ -8,13 +8,16 @@ data class WalletRule(val name: String, val packageId: String, val enabled: Bool
 object WalletConfig {
     private const val PREFS = "wallet_config_v11"
     private const val KEY = "rules"
-    // "YOLO" sin paquete se quitó (2026-09-23): quedaba como entrada muerta que nunca
-    // detectaba nada — "Yolo Pago" (agregada desde el selector de apps) es la real.
+    // Paquetes reales confirmados por el usuario desde su teléfono (selector de apps
+    // instaladas), 2026-09-23 — reemplazan los defaults viejos con packageId vacío que nunca
+    // detectaban nada (YAPE/YASTA/AlToke) y agregan las que faltaban.
     private val defaults = listOf(
-        WalletRule("YAPE", "", true),
         WalletRule("ZAS", "bec.vdb.direct", true),
-        WalletRule("YASTA", "", true),
-        WalletRule("AlToke", "", true)
+        WalletRule("Yasta", "com.busa.wallet", true),
+        WalletRule("Yape", "com.bcp.bo.wallet", true),
+        WalletRule("altoke", "com.bancosol.altoke", true),
+        WalletRule("Bille", "com.walletapp.mobile", true),
+        WalletRule("Yolo Pago", "bo.com.yolopago", true)
     )
 
     fun rules(context: Context): List<WalletRule> {
