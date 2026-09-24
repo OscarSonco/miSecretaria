@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -59,8 +60,18 @@ class WalletNotificationListener : NotificationListenerService() {
                 continue
             }
             val deviceLabel = DisplayPreferences.deviceLabel(applicationContext)
+            // `getUpdates` es una llamada bloqueante (HttpURLConnection, no una función
+            // suspend real) — sus propios connectTimeout/readTimeout no siempre alcanzan a
+            // cortar una conexión colgada en condiciones de red raras (confirmado en vivo:
+            // el loop quedó congelado ~13h sin respuesta tras un update de la app, sin volver
+            // a intentar nada, hasta que se forzó a cerrar la app). `withTimeout` no puede
+            // interrumpir la llamada bloqueante en sí, pero sí evita que ESTE loop se quede
+            // esperando para siempre: si se agota, se descarta el resultado y se reintenta en
+            // la próxima vuelta — autorecuperable, sin depender de que el usuario reinicie la app.
             val updates = runCatching {
-                TelegramClient.getUpdates(token, offset = 0, timeoutSeconds = TELEGRAM_LONGPOLL_TIMEOUT_SEC)
+                withTimeout((TELEGRAM_LONGPOLL_TIMEOUT_SEC + 15) * 1000L) {
+                    TelegramClient.getUpdates(token, offset = 0, timeoutSeconds = TELEGRAM_LONGPOLL_TIMEOUT_SEC)
+                }
             }.getOrDefault(emptyList())
             for (update in updates) {
                 if (!TelegramConfig.markUpdateIfNew(applicationContext, update.updateId)) continue

@@ -4,17 +4,20 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-24)
 
-Código en disco = v2.20 (`versionCode=2020`) — el usuario publicó hasta 2.19 (`gh release list`
-confirma `v2.19` como "Latest" en ese momento); **2.20 (Papelera + colores + botón Volver) fue
-compilada y con build Interna generada, pero AÚN NO publicada** — falta que el usuario corra
-`release.sh`/el `.desktop` cuando quiera cerrarla. **Importante:** la tanda v2.19 completa
+Código en disco = v2.22 (`versionCode=2022`) — el usuario publicó hasta 2.19 (`gh release list`
+confirma `v2.19` como "Latest" en ese momento, y es lo que sigue instalado en su teléfono real).
+**2.20 (Papelera + colores + botón Volver), 2.21 (fix del bug real "el bot dejó de responder
+por ~13h sin crashear") y 2.22 (`/panelon`/`/paneloff` agregados al `/help`) están compiladas
+con build Interna generada, pero AÚN NO publicadas** — falta que el usuario corra
+`release.sh`/el `.desktop` cuando quiera cerrarlas. **Importante:** la tanda v2.19 completa
 (borrar/fijar/copiar/nota + centralización de textos) salió a producción SIN haberse probado en
 vivo — la próxima sesión debe priorizar confirmar con el usuario que se ve/funciona bien en el
 teléfono real, no asumir que "recién compilado" significa "sin probar aún" como en tandas
-anteriores. Lo mismo aplica ahora a 2.20, que además cambia el comportamiento de "eliminar" en
-el Historial (ya no borra, mueve a Papelera) — vale la pena que el usuario confirme que
-entiende el cambio de comportamiento antes de repartirla a las sucursales. Reglas de trabajo
-con el usuario:
+anteriores. Lo mismo aplica a 2.20 (cambia el comportamiento de "eliminar" en el Historial, ya
+no borra, mueve a Papelera) y sobre todo a 2.21 (el fix del long-poll colgado — el usuario ya
+tuvo que forzar el cierre de la app una vez por esto en v2.19, así que instalar 2.21+ pronto es
+recomendable, no solo cosmético). Reglas de trabajo con
+el usuario:
 - ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
   interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
   siempre por su cuenta, vía "Buscar actualización" en la app.
@@ -29,6 +32,53 @@ con el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.22 (2026-09-24) — `/panelon`/`/paneloff` faltaban en el `/help`
+
+Pedido del usuario tras notar que el `/help` del bot no mencionaba los comandos nuevos del
+panel web. `BotTexts.kt` ganó `CMD_PANEL_ON = "panelon"`/`CMD_PANEL_OFF = "paneloff"`
+(**solo para texto** — la app NO los procesa, los sigue escuchando exclusivamente
+`csv_importer.py` en la PC) y se agregaron dos líneas al `help()`. **Importante:** estos dos
+nombres viven duplicados a mano en dos lenguajes (`BotTexts.kt` en Kotlin y las constantes
+`CMD_PANEL_ON`/`CMD_PANEL_OFF` al principio de `csv_importer.py` en Python) — no hay una sola
+fuente de verdad entre la app y el script de la PC; si alguna vez se renombran, hay que
+cambiarlos en los dos lados (ambos archivos ya tienen un comentario apuntando al otro).
+
+### Tanda v2.21 (2026-09-24) — bug real: el bot dejó de responder comandos ~13h, sin crashear
+
+🐛→✅ **Reportado por el usuario:** "presioné /help en el bot pero no responde". Diagnóstico
+hecho leyendo directamente los `getUpdates` pendientes en Telegram (solo lectura, `offset=0`,
+sin confirmar nada — no interfiere con nadie) y comparando contra `processed_update_ids` del
+teléfono (`shared_prefs/telegram_config_v1.xml` vía `run-as`):
+- El teléfono NO había marcado ningún update como procesado desde las **23:40 del 9/23** —
+  justo antes de actualizar a v2.19 (`lastUpdateTime=2026-09-24 00:12:29`, ~32 min después).
+  Cuatro mensajes de HOY (`/menu`, `/start`, `/help`, `/help`, 13:24) seguían sin leerse, casi
+  10 minutos después de enviados.
+- `dumpsys activity services` mostró que el proceso de la app NO se había reiniciado ni
+  crasheado en esas ~13h (`createTime` estable, coincide con la hora de instalación) — es decir,
+  el bucle de long-polling de `WalletNotificationListener.telegramLongPollLoop()` se congeló
+  silenciosamente en una llamada de red (`TelegramClient.getUpdates`) que nunca volvió ni hizo
+  timeout, sin tumbar la app ni el servicio. Al no haber ninguna protección adicional, ese loop
+  se queda ahí para siempre — la única forma de destrabarlo era forzar el cierre de la app.
+- **Se descartó como causa** el nuevo polling de `/panelon`/`/paneloff` agregado hoy en
+  `csv_importer.py` (PC): la congelación empezó ~13h antes de que ese código existiera, así
+  que no es la causa — pero confirma que hacer `getUpdates` desde varios lugares a la vez
+  (teléfonos + ahora la PC) no rompe nada, ya que Telegram no devolvió ningún error de
+  conflicto en la consulta de diagnóstico.
+- ✅ **Arreglo de fondo:** `WalletNotificationListener.telegramLongPollLoop()` y
+  `TelegramSyncWorker.processIncomingCommands()` ahora envuelven la llamada a `getUpdates` en
+  `withTimeout(...)` (40s y 20s respectivamente) además de los timeouts propios de
+  `HttpURLConnection` (que evidentemente no bastan solos en algún escenario de red raro —
+  posible fallo de resolución DNS colgada, un problema conocido de Java/Android que
+  `connectTimeout` no siempre cubre). `withTimeout` no puede interrumpir la llamada bloqueante
+  en sí (no es una función `suspend` real), pero sí evita que el LOOP se quede esperando para
+  siempre — si se agota, se descarta el resultado de esa vuelta y se reintenta en la próxima,
+  autorrecuperable sin depender de que el usuario reinicie la app.
+- **Arreglo inmediato para el usuario mientras tanto:** forzar el cierre de la app y volver a
+  abrirla — eso reinicia el loop y procesa los comandos pendientes casi al instante.
+- **Sin confirmar todavía si esto se repite tras el fix** — es la primera vez que se documenta
+  este bug; si vuelve a colgarse con `withTimeout` puesto, hay que investigar más a fondo (ej.
+  loguear explícitamente cuando se agota el timeout, algo que hoy no hace).
 
 ### Tanda v2.20 (2026-09-24) — Papelera de notificaciones + colores de Configuración + botón Volver
 
@@ -599,14 +649,16 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2020`, `versionName="2.20"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2022`, `versionName="2.22"` (ver `app/build.gradle.kts`,
   subida 2026-09-24). Compila limpio en el Debian, build Interna generada. **NO publicada
-  todavía** — la v2.19 sigue siendo la última publicada (`gh release list`/`update.json`).
-  **Pendiente de verificar en vivo:** permiso de medios + detección real de foto/audio/video de
-  WhatsApp (Paso 2), guardar/probar el bot de Telegram en Configuración (Paso 3), toda la tanda
-  v2.19 (borrar/fijar/copiar/nota + centralización de textos — ya en producción, sin probar) y
-  toda la tanda v2.20 (Papelera, colores de Configuración, botón Volver verde — sin publicar,
-  sin probar).
+  todavía** — la v2.19 sigue siendo la última publicada (`gh release list`/`update.json`) y lo
+  instalado en el teléfono real del usuario. **Pendiente de verificar en vivo:** permiso de
+  medios + detección real de foto/audio/video de WhatsApp (Paso 2), guardar/probar el bot de
+  Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
+  centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
+  colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
+  (`withTimeout` en el long-poll de Telegram — corrige un bug real ya confirmado en vivo: el
+  bot dejó de responder comandos por ~13h sin crashear, ver esa sección más abajo).
 - **Esquema de versionCode:** `major*1000 + minor` (ej. 2.1 → 2001, 2.700 → 2700), para poder
   hacer muchos builds de prueba (2.1, 2.2, ... 2.700) antes de saltar a la siguiente versión
   entera (3.0) cuando quede estable.
@@ -818,6 +870,9 @@ cada exclusión.
   en `onDestroy`, con un loop infinito (`telegramLongPollLoop`) que pide `getUpdates` con
   `timeout=25s` y delega en `TelegramCommandHandler` — se aprovecha que este servicio YA corre
   todo el tiempo que la app tenga permiso de notificaciones, sin necesitar un mecanismo nuevo.
+  **v2.21:** la llamada a `getUpdates` queda envuelta en `withTimeout(40_000)` — confirmado en
+  vivo que sin esto el loop puede quedarse colgado para siempre en una llamada de red que nunca
+  vuelve, sin crashear (ver "Tanda v2.21" arriba para el diagnóstico completo).
 - `WalletNotificationNotifier.kt` — notificación del sistema (top deslizable) + `fullScreenIntent`
   (solo para pagos, si "Pantalla completa" está activado). Desde v2.19, el título/nombre/
   descripción del canal salen de `strings.xml` (`context.getString(...)`) en vez de estar
@@ -890,11 +945,12 @@ cada exclusión.
   `intervalMinutes`, mínimo 15, default 30): envía el CSV del historial y revisa comandos como
   **respaldo** del long-polling en tiempo real (ver `WalletNotificationListener`, v2.16) — por
   si Android mata el servicio y se corta el loop. **Pide siempre `offset=0`** (nunca confirma
-  nada ante Telegram) y filtra los repetidos con `TelegramConfig.isUpdateProcessed` — mismo
-  dedupe que el loop en tiempo real, así que no hay riesgo de procesar un comando dos veces.
-  La lógica de los comandos en sí vive en `TelegramCommandHandler.kt`. Se arranca desde
+  nada ante Telegram) y filtra los repetidos con `TelegramConfig.markUpdateIfNew` — mismo
+  dedupe atómico que el loop en tiempo real, así que no hay riesgo de procesar un comando dos
+  veces. La lógica de los comandos en sí vive en `TelegramCommandHandler.kt`. Se arranca desde
   `MainActivity.onCreate`. Dependencia `androidx.work:work-runtime-ktx:2.11.2` agregada en
-  `app/build.gradle.kts`.
+  `app/build.gradle.kts`. **v2.21:** `processIncomingCommands` también envuelve su `getUpdates`
+  en `withTimeout(20_000)`, mismo motivo que en `WalletNotificationListener`.
 - `DisplayPreferences.kt` — todas las preferencias del usuario (switches, perfil de voz,
   velocidad, heartbeat, `deviceLabel` —nombre de sucursal, se genera un código alfanumérico
   aleatorio tipo `MS-7K2F9Q` si no fue personalizado, renombrable por Telegram con

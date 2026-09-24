@@ -48,6 +48,9 @@ TELEGRAM_POLL_SECONDS = 10
 WEB_SERVER_PORT = 8766
 EXPECTED_HEADER = ["Sucursal", "Fecha", "Origen", "Tipo", "Mensaje"]
 MAX_EVENTOS_EN_PANTALLA = 8
+# Mismos nombres que BotTexts.CMD_PANEL_ON/CMD_PANEL_OFF (Kotlin, solo para que aparezcan en el
+# /help de la app) — no hay una sola fuente de verdad entre los dos lenguajes, si se renombran
+# aquí hay que renombrarlos también allá a mano.
 CMD_PANEL_ON = "/panelon"
 CMD_PANEL_OFF = "/paneloff"
 

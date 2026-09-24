@@ -13,6 +13,13 @@ object BotTexts {
     const val CMD_HELP = "help"
     const val CMD_START = "start"
 
+    // Estos dos NO los procesa la app — los escucha `csv_importer.py` en la PC del
+    // administrador (ver ese script). Se listan aquí SOLO para que aparezcan en el /help;
+    // si se renombran allá, hay que renombrarlos también aquí a mano (no hay una sola fuente
+    // de verdad entre Kotlin y Python para estos dos).
+    const val CMD_PANEL_ON = "panelon"
+    const val CMD_PANEL_OFF = "paneloff"
+
     const val REMOTE_ALERT_WALLET = "Aviso remoto"
 
     fun help(deviceLabel: String) =
@@ -26,6 +33,8 @@ object BotTexts {
             "Ejemplo: /$CMD_NOTIFY $deviceLabel Reunión a las 3pm\n\n" +
             "/$CMD_RENAME <código_actual> <nombre_nuevo>\nCambia el nombre de una sucursal (código/nombre debe coincidir exacto).\n" +
             "Ejemplo: /$CMD_RENAME $deviceLabel Sucursal Centro\n\n" +
+            "/$CMD_PANEL_ON\nEnciende el panel web (miSecretaria.html) para ver la base de datos — solo funciona si el administrador tiene csv_importer.py corriendo en su PC.\n" +
+            "/$CMD_PANEL_OFF\nApaga ese panel web.\n\n" +
             "/$CMD_HELP\nMuestra esta ayuda.\n\n" +
             "Esta sucursal se llama: $deviceLabel"
 

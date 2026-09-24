@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeUnit
 
 /**
@@ -66,8 +67,11 @@ class TelegramSyncWorker(context: Context, params: WorkerParameters) : Coroutine
      * `TelegramConfig.isUpdateProcessed`). El filtro de repetidos es local, por dispositivo, y
      * es el mismo que usa el polling en tiempo real, así que no hay doble procesamiento.
      */
-    private fun processIncomingCommands(token: String, chatId: String) {
-        val updates = TelegramClient.getUpdates(token, offset = 0)
+    private suspend fun processIncomingCommands(token: String, chatId: String) {
+        // Mismo resguardo que en WalletNotificationListener: si `getUpdates` se queda colgado
+        // (confirmado en vivo que puede pasar), que este ciclo del respaldo se rinda a los 20s
+        // en vez de bloquear el worker indefinidamente.
+        val updates = runCatching { withTimeout(20_000L) { TelegramClient.getUpdates(token, offset = 0) } }.getOrDefault(emptyList())
         val deviceLabel = DisplayPreferences.deviceLabel(applicationContext)
         for (update in updates) {
             if (!TelegramConfig.markUpdateIfNew(applicationContext, update.updateId)) continue

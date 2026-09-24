@@ -198,6 +198,10 @@ que ya tengas v2.15+, que sí te responde con la sintaxis correcta si te equivoc
 - `/renombrar <código_actual> <nombre_nuevo>` — si una sucursal se quedó con el código
   alfanumérico automático (ej. `MS-7K2F9Q`) y quieres darle un nombre más claro, así se lo
   cambias sin tocar el teléfono. Ejemplo: `/renombrar MS-7K2F9Q Sucursal Centro`
+- `/panelon` / `/paneloff` — enciende/apaga el panel web (`miSecretaria.html`) para ver la base
+  de datos local. Estos dos **no los procesan los teléfonos** — los escucha tu computadora
+  (`csv_importer.py` tiene que estar corriendo ahí). Ver "Ver el historial en un panel web" más
+  abajo.
 
 ## Repartir la app a varias sucursales
 
