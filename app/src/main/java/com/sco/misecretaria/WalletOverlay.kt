@@ -3,6 +3,8 @@ package com.sco.misecretaria
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -16,8 +18,21 @@ object WalletOverlay {
     private var windowManager: WindowManager? = null
     private var view: View? = null
     private var currentId: String? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * Crear/agregar vistas de Android SOLO se puede hacer en el hilo principal (tiene
+     * `Looper.prepare()`). Antes esto no importaba porque siempre se llamaba desde
+     * `onNotificationPosted` (ya en el hilo principal); desde que `/notificarpantalla` llega
+     * por el polling de Telegram (hilo de fondo, `Dispatchers.IO`), hace falta saltar al hilo
+     * principal explícitamente o la app tira "Can't create handler inside thread ...".
+     */
     fun show(context: Context, item: WalletNotification) {
+        if (Looper.myLooper() == Looper.getMainLooper()) showOnMainThread(context, item)
+        else mainHandler.post { showOnMainThread(context, item) }
+    }
+
+    private fun showOnMainThread(context: Context, item: WalletNotification) {
         if (!Settings.canDrawOverlays(context)) {
             ScoSecretariaLogger.error(context, "Permiso de mostrar sobre otras aplicaciones no concedido")
             return
@@ -95,6 +110,10 @@ object WalletOverlay {
     }
 
     fun remove() {
+        if (Looper.myLooper() == Looper.getMainLooper()) removeOnMainThread() else mainHandler.post { removeOnMainThread() }
+    }
+
+    private fun removeOnMainThread() {
         val existing = view ?: return
         runCatching { windowManager?.removeView(existing) }
         view = null

@@ -4,8 +4,8 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-23)
 
-Código en disco = v2.17 (`versionCode=2017`) — el usuario ya publicó e instaló hasta 2.16;
-2.17 es un fix de la misma tarde, todavía sin publicar (build Interna ya generada). Reglas de
+Código en disco = v2.18 (`versionCode=2018`) — el usuario ya publicó e instaló hasta 2.17;
+2.18 es un fix de la misma noche, todavía sin publicar (build Interna ya generada). Reglas de
 trabajo con el usuario:
 - ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
   interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
@@ -21,6 +21,37 @@ trabajo con el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.18 (2026-09-23, noche) — `/notificarpantalla` no mostraba nada en pantalla: bug real, confirmado en log
+
+- 🐛→✅ **Confirmado en el log real del teléfono** (2.17 instalada y probada):
+  ```
+  [INFO] Aviso remoto (audio + pantalla) recibido vía Telegram
+  [ERROR] No se pudo mostrar aviso superpuesto Can't create handler inside thread
+          Thread[DefaultDispatcher-worker-2,5,main] that has not called Looper.prepare()
+  ```
+  Causa: `WalletOverlay.show()` crea `View`s de Android (`LinearLayout`/`TextView`/`Button`) y
+  llama `WindowManager.addView()` — eso SOLO se puede hacer en el hilo principal (el único con
+  `Looper` preparado). Antes de v2.16 esto nunca fallaba porque `WalletOverlay.show()` siempre
+  se llamaba desde `onNotificationPosted` (el framework de Android lo invoca en el hilo
+  principal). Desde que `/notificarpantalla` llega por el long-polling de Telegram
+  (`Dispatchers.IO`, un hilo de fondo), la llamada directa reventaba en silencio (solo logueaba
+  el error, no crasheaba la app) y el aviso nunca aparecía — ni la pantalla completa
+  (`fullScreenEnabled`) ni el aviso flotante, exactamente lo que reportó el usuario. El usuario
+  tenía "Pantalla de aviso" activado (no "Pantalla completa"), así que cayó en la rama que
+  usa `WalletOverlay`, la que fallaba.
+- ✅ **Corregido:** `WalletOverlay.show()`/`remove()` ahora revisan en qué hilo están
+  (`Looper.myLooper() == Looper.getMainLooper()`) y si no es el principal, saltan ahí con
+  `Handler(Looper.getMainLooper()).post { ... }` antes de tocar cualquier `View`. Funciona
+  igual sin importar desde qué hilo se llame (notificación normal en el hilo principal, o
+  `/notificarpantalla` desde el polling en un hilo de fondo).
+- **Lección para el futuro:** cualquier código nuevo que dispare UI (`WalletOverlay`,
+  `PaymentAlertActivity`, cualquier `View`/`WindowManager` directo) debe asumir que puede ser
+  llamado desde un hilo de fondo ahora que existe el long-polling de Telegram — no asumir que
+  siempre viene de `onNotificationPosted`.
+- **Sin confirmar todavía si `/notificarpantalla` ya funciona de punta a punta** — el fix
+  corrige la causa exacta del error de log, pero falta que el usuario lo pruebe en el teléfono
+  tras instalar 2.18.
 
 ### Tanda v2.17 (2026-09-23, tarde) — race condition del dedupe + `/notificarpantalla`
 
@@ -50,8 +81,11 @@ trabajo con el usuario:
   - Los prefijos de comando se revisan con límite de palabra (`^/notificar\b` vs.
     `^/notificarpantalla\b`) para que no se confundan entre sí (`/notificarpantalla` SÍ
     empieza con el texto "/notificar", pero no con espacio inmediatamente después).
-- **Sin probar en el teléfono todavía** ninguna parte de esta tanda (`/notificarpantalla`, el
-  fix del dedupe, `/notificar` sin pantalla).
+- ✅ **Probado en el teléfono (2026-09-23, noche):** el audio de `/notificarpantalla` sonó
+  bien (ver log: "Aviso remoto (audio + pantalla) recibido vía Telegram", dos veces para dos
+  pruebas distintas — sin señales de doble-lectura del mismo mensaje, el fix del dedupe parece
+  estar funcionando). ❌ La parte de PANTALLA no apareció — bug real encontrado y corregido en
+  v2.18, ver esa sección.
 
 ### Tanda v2.15/v2.16 (2026-09-23, tarde) — comandos de Telegram: diagnóstico de uso + tiempo real
 
@@ -399,7 +433,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2017`, `versionName="2.17"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2018`, `versionName="2.18"` (ver `app/build.gradle.kts`,
   subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
   presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
   de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
@@ -486,7 +520,11 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
 - `WalletOverlay.kt` — el aviso flotante ("Pantalla de aviso"), vistas nativas de Android
   (no Compose). Botones Repetir (azul/blanco) y OK (amarillo/rojo). Desde v2.17: el encabezado
   "Pago recibido: X" y el monto solo se muestran si `item.kind == PAYMENT`; para
-  `NotificationKind.ALERT` (`/notificarpantalla`) solo se ve el nombre + el mensaje, sin monto
+  `NotificationKind.ALERT` (`/notificarpantalla`) solo se ve el nombre + el mensaje, sin monto.
+  **v2.18:** `show()`/`remove()` saltan al hilo principal con `Handler(Looper.getMainLooper())`
+  si se llaman desde otro hilo — crear `View`s fuera del hilo principal tiraba
+  "Can't create handler inside thread ... Looper.prepare()" y el aviso nunca se mostraba
+  (pasaba con `/notificarpantalla`, que llega por el polling de Telegram en `Dispatchers.IO`)
   inventado.
 - `PaymentAlertActivity.kt` — pantalla completa de pago (cuando "Pantalla completa" está ON).
   Mismos colores de botones que el overlay. Desde v2.17: recibe `EXTRA_KIND` en el Intent — con
