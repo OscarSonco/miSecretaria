@@ -8,6 +8,9 @@ import java.util.UUID
  * entre el polling en tiempo real de `WalletNotificationListener` y el respaldo periódico de
  * `TelegramSyncWorker` (mismo dedupe atómico vía `TelegramConfig.markUpdateIfNew`, así que no
  * hay riesgo de duplicar aunque los dos corran casi al mismo tiempo).
+ *
+ * Los nombres de comando y el texto de las respuestas viven en `BotTexts.kt` — cambiar un
+ * comando o una frase se hace ahí, no aquí.
  */
 object TelegramCommandHandler {
 
@@ -25,20 +28,8 @@ object TelegramCommandHandler {
      */
     private fun handleHelpCommand(context: Context, text: String, deviceLabel: String) {
         val normalized = text.trim().lowercase()
-        if (normalized != "/help" && normalized != "/start") return
-        val help = "🤖 miSecretaria — comandos del bot:\n" +
-            "⚠️ Escribe todo en UN SOLO mensaje, no en varios seguidos.\n\n" +
-            "/notificar TODOS <mensaje>\nSolo AUDIO — lee el mensaje en voz alta, sin nada en pantalla.\n" +
-            "Ejemplo: /notificar TODOS Cerramos a las 8pm hoy\n\n" +
-            "/notificarpantalla TODOS <mensaje>\nAUDIO + PANTALLA — además lo muestra en pantalla completa o aviso flotante.\n" +
-            "Ejemplo: /notificarpantalla TODOS Vino el proveedor, revisen\n\n" +
-            "Con ambos puedes usar el nombre/código de una sucursal en vez de TODOS, para avisarle solo a esa.\n" +
-            "Ejemplo: /notificar $deviceLabel Reunión a las 3pm\n\n" +
-            "/renombrar <código_actual> <nombre_nuevo>\nCambia el nombre de una sucursal (código/nombre debe coincidir exacto).\n" +
-            "Ejemplo: /renombrar $deviceLabel Sucursal Centro\n\n" +
-            "/help\nMuestra esta ayuda.\n\n" +
-            "Esta sucursal se llama: $deviceLabel"
-        replyUsage(context, help)
+        if (normalized != "/${BotTexts.CMD_HELP}" && normalized != "/${BotTexts.CMD_START}") return
+        replyUsage(context, BotTexts.help(deviceLabel))
     }
 
     /**
@@ -47,10 +38,10 @@ object TelegramCommandHandler {
      * revisa con límite de palabra (`\b`) para no confundirse con `/notificarpantalla`.
      */
     private fun handleNotifyCommand(context: Context, text: String, deviceLabel: String) {
-        if (!Regex("(?is)^/notificar\\b").containsMatchIn(text.trim())) return
-        val match = Regex("(?is)^/notificar\\s+(\\S+)\\s+(.+)$").find(text)
+        if (!Regex("(?is)^/${BotTexts.CMD_NOTIFY}\\b").containsMatchIn(text.trim())) return
+        val match = Regex("(?is)^/${BotTexts.CMD_NOTIFY}\\s+(\\S+)\\s+(.+)$").find(text)
         if (match == null) {
-            replyUsage(context, "⚠️ Formato incorrecto. Todo en UN SOLO mensaje:\n/notificar TODOS <mensaje>\n/notificar <sucursal> <mensaje>\n\nEjemplo: /notificar TODOS Hola a todos")
+            replyUsage(context, BotTexts.notifyUsageError())
             return
         }
         val (target, message) = resolveTargetAndMessage(match) ?: return
@@ -68,10 +59,10 @@ object TelegramCommandHandler {
      * encabezado "Pago recibido" ni un monto inventado.
      */
     private fun handleNotifyPantallaCommand(context: Context, text: String, deviceLabel: String) {
-        if (!Regex("(?is)^/notificarpantalla\\b").containsMatchIn(text.trim())) return
-        val match = Regex("(?is)^/notificarpantalla\\s+(\\S+)\\s+(.+)$").find(text)
+        if (!Regex("(?is)^/${BotTexts.CMD_NOTIFY_SCREEN}\\b").containsMatchIn(text.trim())) return
+        val match = Regex("(?is)^/${BotTexts.CMD_NOTIFY_SCREEN}\\s+(\\S+)\\s+(.+)$").find(text)
         if (match == null) {
-            replyUsage(context, "⚠️ Formato incorrecto. Todo en UN SOLO mensaje:\n/notificarpantalla TODOS <mensaje>\n/notificarpantalla <sucursal> <mensaje>\n\nEjemplo: /notificarpantalla TODOS Hola a todos")
+            replyUsage(context, BotTexts.notifyScreenUsageError())
             return
         }
         val (target, message) = resolveTargetAndMessage(match) ?: return
@@ -95,7 +86,7 @@ object TelegramCommandHandler {
         target.equals("TODOS", true) || target.equals(deviceLabel, true)
 
     private fun saveAndSpeak(context: Context, message: String, kind: NotificationKind = NotificationKind.GENERAL): WalletNotification {
-        val item = WalletNotification(UUID.randomUUID().toString(), "Aviso remoto", "Aviso remoto", message, WalletNotificationStore.now(), kind)
+        val item = WalletNotification(UUID.randomUUID().toString(), BotTexts.REMOTE_ALERT_WALLET, BotTexts.REMOTE_ALERT_WALLET, message, WalletNotificationStore.now(), kind)
         WalletNotificationStore.add(item)
         // A propósito NO se usa SpeechEngine.speak(item) — eso antepondría "Aviso remoto, " al
         // leerlo (mismo prefijo de app que usan las notificaciones generales). Aquí se lee el
@@ -109,10 +100,10 @@ object TelegramCommandHandler {
      * para renombrar el código alfanumérico autogenerado como para volver a renombrar después.
      * Igual que /notificar: debe mandarse todo en un solo mensaje. */
     private fun handleRenameCommand(context: Context, text: String, deviceLabel: String) {
-        if (!Regex("(?is)^/renombrar\\b").containsMatchIn(text.trim())) return
-        val renameMatch = Regex("(?is)^/renombrar\\s+(\\S+)\\s+(.+)$").find(text)
+        if (!Regex("(?is)^/${BotTexts.CMD_RENAME}\\b").containsMatchIn(text.trim())) return
+        val renameMatch = Regex("(?is)^/${BotTexts.CMD_RENAME}\\s+(\\S+)\\s+(.+)$").find(text)
         if (renameMatch == null) {
-            replyUsage(context, "⚠️ Formato incorrecto. Todo en UN SOLO mensaje:\n/renombrar <código_actual> <nombre_nuevo>\n\nEjemplo: /renombrar $deviceLabel Sucursal Centro")
+            replyUsage(context, BotTexts.renameUsageError(deviceLabel))
             return
         }
         val currentCode = renameMatch.groupValues[1]
@@ -120,7 +111,7 @@ object TelegramCommandHandler {
         if (!currentCode.equals(deviceLabel, true) || newName.isBlank()) return
         DisplayPreferences.setDeviceLabel(context, newName)
         ScoSecretariaLogger.info(context, "Dispositivo renombrado de '$deviceLabel' a '$newName' vía Telegram")
-        replyUsage(context, "✅ '$deviceLabel' ahora se llama '$newName'")
+        replyUsage(context, BotTexts.renamed(deviceLabel, newName))
     }
 
     private fun replyUsage(context: Context, text: String) {

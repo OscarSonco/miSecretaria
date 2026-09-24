@@ -2,6 +2,7 @@ package com.sco.misecretaria
 
 import android.Manifest
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -28,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -42,7 +44,7 @@ private const val REPORT_MIME = "text/plain"
 // ALERT = aviso remoto de /notificarpantalla: usa la misma pantalla completa/aviso flotante
 // que un pago, pero sin el encabezado "Pago recibido" ni el monto (no es un pago real).
 enum class NotificationKind { PAYMENT, GENERAL, ALERT }
-data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT, val mediaPath: String? = null)
+data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT, val mediaPath: String? = null, val note: String? = null)
 
 class MainActivity : ComponentActivity() {
     companion object { private const val REQ_SAVE = 100; private const val REQ_RESTORE = 101 }
@@ -76,7 +78,7 @@ class MainActivity : ComponentActivity() {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(intent, "Compartir $name"))
+            startActivity(Intent.createChooser(intent, getString(R.string.share_chooser_title, name)))
         }.onFailure { ScoSecretariaLogger.error(this, "No se pudo compartir $name", it) }
     }
     fun save(name: String, content: String, mime: String = REPORT_MIME) {
@@ -92,11 +94,11 @@ class MainActivity : ComponentActivity() {
             REQ_RESTORE -> runCatching {
                 val text = contentResolver.openInputStream(data.data!!)?.bufferedReader()?.use { it.readText() } ?: return
                 BackupManager.importJson(this, text)
-                android.widget.Toast.makeText(this, "Backup restaurado", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(this, getString(R.string.toast_backup_restored), android.widget.Toast.LENGTH_LONG).show()
                 recreate()
             }.onFailure {
                 ScoSecretariaLogger.error(this, "Fallo al restaurar backup", it)
-                android.widget.Toast.makeText(this, "No se pudo restaurar el backup", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(this, getString(R.string.toast_backup_restore_failed), android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -112,9 +114,15 @@ class MainActivity : ComponentActivity() {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(intent, "Compartir ${AppInfo.NAME}"))
+            startActivity(Intent.createChooser(intent, getString(R.string.share_chooser_title, AppInfo.NAME)))
         }.onFailure { ScoSecretariaLogger.error(this, "No se pudo compartir el APK", it) }
     }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(AppInfo.NAME, text))
+    android.widget.Toast.makeText(context, context.getString(R.string.toast_copied), android.widget.Toast.LENGTH_SHORT).show()
 }
 
 private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP }
@@ -153,10 +161,10 @@ enum class PickerTarget { WALLET, APP }
     }
     BackHandler(onBack = onDone)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onDone) { Text("Volver") }; Text(if (target == PickerTarget.WALLET) "Elegir billetera" else "Elegir aplicación", style = MaterialTheme.typography.headlineSmall) }
-        OutlinedTextField(query, { query = it }, label = { Text("Buscar") }, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onDone) { Text(stringResource(R.string.action_back)) }; Text(stringResource(if (target == PickerTarget.WALLET) R.string.picker_title_wallet else R.string.picker_title_app), style = MaterialTheme.typography.headlineSmall) }
+        OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.label_search)) }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        if (loading) Text("Cargando aplicaciones instaladas...")
+        if (loading) Text(stringResource(R.string.installed_apps_loading))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(filtered, key = { it.packageName }) { app ->
                 Card(Modifier.fillMaxWidth().clickable {
@@ -180,16 +188,23 @@ enum class PickerTarget { WALLET, APP }
 @Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, onAdminUnlocked: () -> Unit) {
     val context = LocalContext.current
     var history by remember { mutableStateOf(WalletNotificationStore.history()) }
+    var pinnedIds by remember { mutableStateOf(WalletNotificationStore.pinnedIds()) }
     var serviceOn by remember { mutableStateOf(DisplayPreferences.serviceEnabled(context)) }
     var filter by remember { mutableStateOf<String?>(null) }
     var serviceAlive by remember { mutableStateOf(true) }
     var editingAdId by remember { mutableStateOf<String?>(null) }
     var draftPhrase by remember { mutableStateOf("") }
+    var editingNoteId by remember { mutableStateOf<String?>(null) }
+    var draftNote by remember { mutableStateOf("") }
     var logoTapCount by remember { mutableStateOf(0) }
     var lastLogoTapAt by remember { mutableStateOf(0L) }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
+    var showClearAllConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         WalletNotificationListener.requestServiceRebind(context)
         while (true) {
@@ -201,6 +216,10 @@ enum class PickerTarget { WALLET, APP }
     }
     val sources = remember(history) { history.map { it.wallet }.distinct().sorted() }
     val filtered = remember(history, filter) { if (filter == null) history else history.filter { it.wallet == filter } }
+    val ordered = remember(filtered, pinnedIds) {
+        val (pinned, rest) = filtered.partition { it.id in pinnedIds }
+        pinned + rest
+    }
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Image(
@@ -221,54 +240,110 @@ enum class PickerTarget { WALLET, APP }
             )
             Text(AppInfo.DISPLAY, style = MaterialTheme.typography.headlineSmall)
         }
-        Text("Asistente de notificaciones de billeteras móviles")
+        Text(stringResource(R.string.home_subtitle))
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = openSettings, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Configuración") }
-            Button(onClick = openRead, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Leer") }
+            Button(onClick = openSettings, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_settings)) }
+            Button(onClick = openRead, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_read)) }
         }
         Spacer(Modifier.height(8.dp))
-        Button(onClick = { serviceOn = !serviceOn; DisplayPreferences.setServiceEnabled(context, serviceOn) }, colors = ButtonDefaults.buttonColors(containerColor = if (serviceOn) Color(0xFF188038) else Color(0xFFB00020))) { Text(if (serviceOn) "${AppInfo.NAME}: Activado" else "${AppInfo.NAME}: Desactivado") }
-        Text(if (serviceAlive) "Servicio: escuchando ✓" else "Servicio: sin actividad reciente ⚠", color = if (serviceAlive) Color(0xFF188038) else Color(0xFFB00020), style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { serviceOn = !serviceOn; DisplayPreferences.setServiceEnabled(context, serviceOn) }, colors = ButtonDefaults.buttonColors(containerColor = if (serviceOn) Color(0xFF188038) else Color(0xFFB00020))) { Text(stringResource(if (serviceOn) R.string.service_toggle_on else R.string.service_toggle_off, AppInfo.NAME)) }
+        Text(stringResource(if (serviceAlive) R.string.service_status_alive else R.string.service_status_dead), color = if (serviceAlive) Color(0xFF188038) else Color(0xFFB00020), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
-        Text("Historial (${filtered.size}${if (filter != null) " de ${history.size}" else ""})", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (filter != null) stringResource(R.string.history_title_filtered, filtered.size, history.size) else stringResource(R.string.history_title, filtered.size),
+                style = MaterialTheme.typography.titleMedium
+            )
+            TextButton(onClick = { selectionMode = !selectionMode; selectedIds = emptySet() }) { Text(stringResource(if (selectionMode) R.string.action_select_done else R.string.action_select)) }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (selectionMode && selectedIds.isNotEmpty()) {
+                TextButton(onClick = { showDeleteSelectedConfirm = true }) { Text(stringResource(R.string.action_delete_selected, selectedIds.size)) }
+            }
+            if (history.isNotEmpty()) {
+                TextButton(onClick = { showClearAllConfirm = true }) { Text(stringResource(R.string.action_clear_history)) }
+            }
+        }
         if (sources.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text("Todas") })
+                FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text(stringResource(R.string.filter_all)) })
                 sources.forEach { s -> FilterChip(selected = filter == s, onClick = { filter = s }, label = { Text(s) }) }
             }
             Spacer(Modifier.height(6.dp))
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(filtered, key = { it.id }) { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-            Text("${item.wallet} · ${item.receivedAt}"); Text(item.message)
-            item.mediaPath?.let { path -> ThumbnailImage(path) }
-            if (editingAdId == item.id) {
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(draftPhrase, { draftPhrase = it }, label = { Text("Frase para bloquear futuros similares") }, modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { AdFilterConfig.add(context, item.wallet, draftPhrase); editingAdId = null }) { Text("Bloquear") }
-                    TextButton(onClick = { editingAdId = null }) { Text("Cancelar") }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(ordered, key = { it.id }) { item ->
+            val isPinned = item.id in pinnedIds
+            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (selectionMode) Checkbox(checked = item.id in selectedIds, onCheckedChange = { checked ->
+                        selectedIds = if (checked) selectedIds + item.id else selectedIds - item.id
+                    })
+                    Column(Modifier.weight(1f)) {
+                        Text((if (isPinned) "📌 " else "") + "${item.wallet} · ${item.receivedAt}")
+                        Text(item.message)
+                    }
                 }
-            } else {
-                TextButton(onClick = { editingAdId = item.id; draftPhrase = item.message.take(60) }) { Text("🚫 Marcar como publicidad") }
-            }
-        } } } }
+                item.mediaPath?.let { path -> ThumbnailImage(path) }
+                if (editingNoteId != item.id && !item.note.isNullOrBlank()) {
+                    Text("📝 ${item.note}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { copyToClipboard(context, item.message) }) { Text(stringResource(R.string.action_copy)) }
+                    TextButton(onClick = {
+                        when (WalletNotificationStore.togglePin(item.id)) {
+                            PinToggleResult.LIMIT_REACHED -> android.widget.Toast.makeText(context, context.getString(R.string.pin_limit_reached, WalletNotificationStore.MAX_PINNED), android.widget.Toast.LENGTH_SHORT).show()
+                            else -> {}
+                        }
+                        pinnedIds = WalletNotificationStore.pinnedIds()
+                    }) { Text(stringResource(if (isPinned) R.string.action_unpin else R.string.action_pin)) }
+                    if (!selectionMode) {
+                        TextButton(onClick = { editingNoteId = item.id; draftNote = item.note.orEmpty() }) { Text(stringResource(R.string.action_add_note)) }
+                        TextButton(onClick = {
+                            WalletNotificationStore.remove(item.id)
+                            history = WalletNotificationStore.history()
+                            pinnedIds = WalletNotificationStore.pinnedIds()
+                        }) { Text(stringResource(R.string.action_delete)) }
+                    }
+                }
+                if (editingNoteId == item.id) {
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(draftNote, { draftNote = it }, label = { Text(stringResource(R.string.note_field_label)) }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { WalletNotificationStore.setNote(item.id, draftNote); history = WalletNotificationStore.history(); editingNoteId = null }) { Text(stringResource(R.string.action_save_note)) }
+                        if (!item.note.isNullOrBlank()) TextButton(onClick = { WalletNotificationStore.setNote(item.id, null); history = WalletNotificationStore.history(); editingNoteId = null }) { Text(stringResource(R.string.action_remove)) }
+                        TextButton(onClick = { editingNoteId = null }) { Text(stringResource(R.string.action_cancel)) }
+                    }
+                }
+                if (editingAdId == item.id) {
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(draftPhrase, { draftPhrase = it }, label = { Text(stringResource(R.string.ad_block_phrase_label)) }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { AdFilterConfig.add(context, item.wallet, draftPhrase); editingAdId = null }) { Text(stringResource(R.string.action_block)) }
+                        TextButton(onClick = { editingAdId = null }) { Text(stringResource(R.string.action_cancel)) }
+                    }
+                } else if (!selectionMode) {
+                    TextButton(onClick = { editingAdId = item.id; draftPhrase = item.message.take(60) }) { Text(stringResource(R.string.action_mark_ad)) }
+                }
+            } }
+        } }
     } }
     if (showPinDialog) {
         AlertDialog(
             onDismissRequest = { showPinDialog = false },
-            title = { Text("PIN de administrador") },
+            title = { Text(stringResource(R.string.pin_dialog_title)) },
             text = {
                 Column {
-                    Text("Solo para editar el token y Chat ID de Telegram.", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.pin_dialog_body), style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         pinInput,
                         { pinInput = it.filter(Char::isDigit) },
-                        label = { Text("PIN") },
+                        label = { Text(stringResource(R.string.pin_label)) },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (pinError) Text("PIN incorrecto", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                    if (pinError) Text(stringResource(R.string.pin_error), color = Color.Red, style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
@@ -277,9 +352,45 @@ enum class PickerTarget { WALLET, APP }
                         showPinDialog = false
                         onAdminUnlocked()
                     } else pinError = true
-                }) { Text("Aceptar") }
+                }) { Text(stringResource(R.string.action_accept)) }
             },
-            dismissButton = { TextButton(onClick = { showPinDialog = false }) { Text("Cancelar") } }
+            dismissButton = { TextButton(onClick = { showPinDialog = false }) { Text(stringResource(R.string.action_cancel)) } }
+        )
+    }
+    if (showDeleteSelectedConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedConfirm = false },
+            title = { Text(stringResource(R.string.confirm_delete_selected_title, selectedIds.size)) },
+            text = { Text(stringResource(R.string.confirm_delete_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    WalletNotificationStore.removeAll(selectedIds)
+                    history = WalletNotificationStore.history()
+                    pinnedIds = WalletNotificationStore.pinnedIds()
+                    selectedIds = emptySet()
+                    selectionMode = false
+                    showDeleteSelectedConfirm = false
+                }) { Text(stringResource(R.string.action_delete)) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteSelectedConfirm = false }) { Text(stringResource(R.string.action_cancel)) } }
+        )
+    }
+    if (showClearAllConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirm = false },
+            title = { Text(stringResource(R.string.confirm_clear_history_title)) },
+            text = { Text(stringResource(R.string.confirm_clear_history_body, history.size)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    WalletNotificationStore.clearHistory()
+                    history = WalletNotificationStore.history()
+                    pinnedIds = WalletNotificationStore.pinnedIds()
+                    selectedIds = emptySet()
+                    selectionMode = false
+                    showClearAllConfirm = false
+                }) { Text(stringResource(R.string.action_clear_history)) }
+            },
+            dismissButton = { TextButton(onClick = { showClearAllConfirm = false }) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
 }
@@ -291,21 +402,21 @@ enum class PickerTarget { WALLET, APP }
     var isPaused by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Leer", style = MaterialTheme.typography.headlineSmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }; Text(stringResource(R.string.action_read), style = MaterialTheme.typography.headlineSmall) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             VoiceProfile.entries.forEach { profile ->
                 FilterChip(selected = voiceProfile == profile, onClick = { voiceProfile = profile; DisplayPreferences.setVoiceProfile(context, profile) }, label = { Text(profile.label) })
             }
         }
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("Pega o escribe el texto a leer") }, modifier = Modifier.fillMaxWidth().weight(1f))
+        OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text(stringResource(R.string.read_placeholder)) }, modifier = Modifier.fillMaxWidth().weight(1f))
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { isPaused = false; SpeechEngine.speakText(context, text) }, enabled = text.isNotBlank()) { Text("Leer en voz alta") }
+            Button(onClick = { isPaused = false; SpeechEngine.speakText(context, text) }, enabled = text.isNotBlank()) { Text(stringResource(R.string.action_read_aloud)) }
             OutlinedButton(onClick = {
                 if (isPaused) { SpeechEngine.resume(context); isPaused = false } else { SpeechEngine.pause(); isPaused = true }
-            }) { Text(if (isPaused) "Reanudar" else "Pausa") }
-            OutlinedButton(onClick = { SpeechEngine.stop(); isPaused = false }) { Text("Detener") }
+            }) { Text(stringResource(if (isPaused) R.string.action_resume else R.string.action_pause)) }
+            OutlinedButton(onClick = { SpeechEngine.stop(); isPaused = false }) { Text(stringResource(R.string.action_stop)) }
         }
     } }
 }
@@ -332,25 +443,25 @@ enum class PickerTarget { WALLET, APP }
     val scope = rememberCoroutineScope()
     BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text("Volver") }; Text("Configuración", style = MaterialTheme.typography.headlineSmall) }
-        PermissionRow("Acceso a notificaciones", isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        PermissionRow("Mostrar sobre otras aplicaciones", Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
-        PermissionRow("Acceso a medios (fotos/audio/video de WhatsApp)", WhatsAppMediaScanner.hasMediaPermission(context)) { activity.requestMediaPermissions() }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }; Text(stringResource(R.string.action_settings), style = MaterialTheme.typography.headlineSmall) }
+        PermissionRow(stringResource(R.string.perm_notifications), isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        PermissionRow(stringResource(R.string.perm_overlay), Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
+        PermissionRow(stringResource(R.string.perm_media), WhatsAppMediaScanner.hasMediaPermission(context)) { activity.requestMediaPermissions() }
         Spacer(Modifier.height(10.dp))
-        Text("Versión instalada: ${AppInfo.VERSION}", style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.installed_version, AppInfo.VERSION), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = {
                 checkingUpdate = true; updateChecked = false
                 scope.launch { updateInfo = UpdateManager.checkForUpdate(); checkingUpdate = false; updateChecked = true }
-            }, enabled = !checkingUpdate) { Text(if (checkingUpdate) "Buscando..." else "Buscar actualización") }
+            }, enabled = !checkingUpdate) { Text(stringResource(if (checkingUpdate) R.string.checking_update else R.string.action_check_update)) }
         }
         if (updateChecked) {
             val info = updateInfo
             if (info == null) {
-                Text("Estás en la última versión.", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.up_to_date), style = MaterialTheme.typography.bodySmall)
             } else {
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                    Text("Nueva versión disponible: ${info.versionName}", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.update_available, info.versionName), style = MaterialTheme.typography.titleMedium)
                     if (info.notes.isNotBlank()) Text(info.notes, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = {
@@ -359,80 +470,80 @@ enum class PickerTarget { WALLET, APP }
                         } else {
                             UpdateManager.downloadAndInstall(context, info)
                         }
-                    }) { Text("Actualizar ahora") }
+                    }) { Text(stringResource(R.string.action_update_now)) }
                 } }
             }
         }
-        Spacer(Modifier.height(10.dp)); SettingSwitch("Notificación hablada", speech) { speech = it; DisplayPreferences.setSpeechEnabled(context, it) }
-        SettingSwitch("Pantalla de aviso", alert) { alert = it; DisplayPreferences.setAlertEnabled(context, it) }
-        SettingSwitch("Pantalla completa", fullScreen) { fullScreen = it; DisplayPreferences.setFullScreenEnabled(context, it) }
+        Spacer(Modifier.height(10.dp)); SettingSwitch(stringResource(R.string.setting_speech), speech) { speech = it; DisplayPreferences.setSpeechEnabled(context, it) }
+        SettingSwitch(stringResource(R.string.setting_alert_overlay), alert) { alert = it; DisplayPreferences.setAlertEnabled(context, it) }
+        SettingSwitch(stringResource(R.string.setting_fullscreen), fullScreen) { fullScreen = it; DisplayPreferences.setFullScreenEnabled(context, it) }
         if (alert) {
-            Text("Botones del aviso", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = buttons == AlertButtons.OK_ONLY, onClick = { buttons = AlertButtons.OK_ONLY; DisplayPreferences.setButtons(context, buttons) }, label = { Text("Solo OK") }); FilterChip(selected = buttons == AlertButtons.REPEAT_AND_OK, onClick = { buttons = AlertButtons.REPEAT_AND_OK; DisplayPreferences.setButtons(context, buttons) }, label = { Text("Repetir y OK") }) }
+            Text(stringResource(R.string.alert_buttons_title), style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = buttons == AlertButtons.OK_ONLY, onClick = { buttons = AlertButtons.OK_ONLY; DisplayPreferences.setButtons(context, buttons) }, label = { Text(stringResource(R.string.alert_buttons_ok_only)) }); FilterChip(selected = buttons == AlertButtons.REPEAT_AND_OK, onClick = { buttons = AlertButtons.REPEAT_AND_OK; DisplayPreferences.setButtons(context, buttons) }, label = { Text(stringResource(R.string.alert_buttons_repeat_ok)) }) }
         }
         Spacer(Modifier.height(8.dp))
-        Text("Tipo de voz", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.voice_type_title), style = MaterialTheme.typography.titleMedium)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             VoiceProfile.entries.forEach { profile ->
                 FilterChip(selected = voiceProfile == profile, onClick = { voiceProfile = profile; DisplayPreferences.setVoiceProfile(context, profile) }, label = { Text(profile.label) })
             }
         }
-        Text("Velocidad de lectura: ${"%.1f".format(speechRate)}x", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.speech_rate_title, "%.1f".format(speechRate)), style = MaterialTheme.typography.titleMedium)
         Slider(value = speechRate, onValueChange = { speechRate = it; DisplayPreferences.setSpeechRateMultiplier(context, it) }, valueRange = 0.5f..2.0f, steps = 14)
-        TextButton(onClick = { runCatching { context.startActivity(Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) } }) { Text("Instalar más voces") }
+        TextButton(onClick = { runCatching { context.startActivity(Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) } }) { Text(stringResource(R.string.action_install_voices)) }
         Spacer(Modifier.height(8.dp))
         val blue = ButtonDefaults.buttonColors(containerColor = AccentBlue)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }, colors = blue) { Text("Compartir Historial") }
-            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }, colors = blue) { Text("Compartir CSV") }
+            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }, colors = blue) { Text(stringResource(R.string.action_share_history)) }
+            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }, colors = blue) { Text(stringResource(R.string.action_share_csv)) }
         }
-        Button(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }, colors = blue) { Text("Compartir Log") }
-        Button(onClick = { activity.shareApk() }) { Text("Compartir Aplicación") }
+        Button(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }, colors = blue) { Text(stringResource(R.string.action_share_log)) }
+        Button(onClick = { activity.shareApk() }) { Text(stringResource(R.string.action_share_apk)) }
         Spacer(Modifier.height(12.dp))
-        Text("Copia de seguridad (config., billeteras, apps)", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.backup_section_title), style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = { activity.save("${AppInfo.NAME}_backup_${WalletNotificationStore.timestampForFile()}.json", BackupManager.exportJson(context), "application/json") }) { Text("Guardar Backup") }
-            TextButton(onClick = { activity.restoreBackup() }) { Text("Restaurar Backup") }
+            TextButton(onClick = { activity.save("${AppInfo.NAME}_backup_${WalletNotificationStore.timestampForFile()}.json", BackupManager.exportJson(context), "application/json") }) { Text(stringResource(R.string.action_save_backup)) }
+            TextButton(onClick = { activity.restoreBackup() }) { Text(stringResource(R.string.action_restore_backup)) }
         }
-        Text("Billeteras autorizadas", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.wallets_section_title), style = MaterialTheme.typography.titleMedium)
         rules.forEach { r -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppIcon(r.packageId)
-                Column { Text(r.name); Text(r.packageId.ifBlank { "(sin paquete)" }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
+                Column { Text(r.name); Text(r.packageId.ifBlank { stringResource(R.string.no_package) }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = r.enabled, onCheckedChange = { WalletConfig.setEnabled(context, r.name, it); rules = WalletConfig.rules(context) })
-                TextButton(onClick = { WalletConfig.remove(context, r.name); rules = WalletConfig.rules(context) }) { Text("Quitar") }
+                TextButton(onClick = { WalletConfig.remove(context, r.name); rules = WalletConfig.rules(context) }) { Text(stringResource(R.string.action_remove)) }
             }
         } }
-        Button(onClick = onPickWallet) { Text("Agregar Billetera") }
+        Button(onClick = onPickWallet) { Text(stringResource(R.string.action_add_wallet)) }
         Spacer(Modifier.height(20.dp))
-        Text("Aplicaciones (General)", style = MaterialTheme.typography.titleMedium)
-        Text("WhatsApp, Messenger, SMS u otras: lee el título de la app + el mensaje completo.", style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.apps_section_title), style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.apps_section_hint), style = MaterialTheme.typography.bodySmall)
         appRules.forEach { r -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppIcon(r.packageId)
-                Column { Text(r.name); Text(r.packageId.ifBlank { "(sin paquete)" }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
+                Column { Text(r.name); Text(r.packageId.ifBlank { stringResource(R.string.no_package) }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = r.enabled, onCheckedChange = { AppConfig.setEnabled(context, r.name, it); appRules = AppConfig.rules(context) })
-                TextButton(onClick = { AppConfig.remove(context, r.name); appRules = AppConfig.rules(context) }) { Text("Quitar") }
+                TextButton(onClick = { AppConfig.remove(context, r.name); appRules = AppConfig.rules(context) }) { Text(stringResource(R.string.action_remove)) }
             }
         } }
-        Button(onClick = onPickApp) { Text("Agregar Aplicación") }
+        Button(onClick = onPickApp) { Text(stringResource(R.string.action_add_app)) }
         Spacer(Modifier.height(20.dp))
-        Text("Telegram", style = MaterialTheme.typography.titleMedium)
-        Text("Envía por Telegram un CSV con las notificaciones nuevas cada cierto tiempo, y recibe avisos remotos vía /notificar TODOS|sucursal mensaje.", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(deviceLabel, { deviceLabel = it }, label = { Text("Nombre de sucursal/dispositivo") }, modifier = Modifier.fillMaxWidth())
+        Text(stringResource(R.string.telegram_section_title), style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.telegram_section_hint), style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(deviceLabel, { deviceLabel = it }, label = { Text(stringResource(R.string.device_label_field)) }, modifier = Modifier.fillMaxWidth())
         if (adminUnlocked) {
-            OutlinedTextField(tgToken, { tgToken = it }, label = { Text("Token del bot") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(tgChatId, { tgChatId = it }, label = { Text("Chat ID") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(tgToken, { tgToken = it }, label = { Text(stringResource(R.string.telegram_token_field)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(tgChatId, { tgChatId = it }, label = { Text(stringResource(R.string.telegram_chatid_field)) }, modifier = Modifier.fillMaxWidth())
         } else {
-            Text("Token: " + if (tgToken.isBlank()) "(no configurado)" else "•••• configurado", style = MaterialTheme.typography.bodySmall)
-            Text("Chat ID: " + if (tgChatId.isBlank()) "(no configurado)" else "•••• configurado", style = MaterialTheme.typography.bodySmall)
-            Text("Toca 3 veces el logo de la pantalla principal para editarlos.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(stringResource(R.string.telegram_token_status, if (tgToken.isBlank()) stringResource(R.string.status_not_configured) else stringResource(R.string.status_configured_masked)), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.telegram_chatid_status, if (tgChatId.isBlank()) stringResource(R.string.status_not_configured) else stringResource(R.string.status_configured_masked)), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.telegram_masked_hint), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
-        OutlinedTextField(tgInterval, { tgInterval = it.filter { c -> c.isDigit() } }, label = { Text("Intervalo (minutos, mínimo 15)") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tgInterval, { tgInterval = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.telegram_interval_field)) }, modifier = Modifier.fillMaxWidth())
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 DisplayPreferences.setDeviceLabel(context, deviceLabel)
@@ -440,30 +551,30 @@ enum class PickerTarget { WALLET, APP }
                 TelegramConfig.setChatId(context, tgChatId)
                 TelegramConfig.setIntervalMinutes(context, tgInterval.toLongOrNull() ?: 30L)
                 if (TelegramConfig.isConfigured(context)) TelegramSyncWorker.schedule(context) else TelegramSyncWorker.cancel(context)
-                tgStatus = "Guardado."
-            }) { Text("Guardar y activar") }
+                tgStatus = context.getString(R.string.telegram_status_saved)
+            }) { Text(stringResource(R.string.action_save_activate)) }
             OutlinedButton(onClick = {
-                tgStatus = "Enviando..."
+                tgStatus = context.getString(R.string.telegram_status_sending)
                 scope.launch {
-                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TelegramClient.sendMessage(tgToken, tgChatId, "✅ Prueba de conexión desde $deviceLabel") }
-                    tgStatus = if (ok) "Mensaje de prueba enviado." else "No se pudo enviar — revisa token/chat id."
+                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TelegramClient.sendMessage(tgToken, tgChatId, context.getString(R.string.telegram_test_message, deviceLabel)) }
+                    tgStatus = if (ok) context.getString(R.string.telegram_status_sent) else context.getString(R.string.telegram_status_send_failed)
                 }
-            }) { Text("Enviar mensaje de prueba") }
+            }) { Text(stringResource(R.string.action_send_test)) }
         }
         Spacer(Modifier.height(6.dp))
         OutlinedButton(onClick = {
             TelegramSyncWorker.runOnce(context)
-            tgStatus = "Sincronizando ahora (revisa comandos y envía el CSV pendiente, sin esperar el intervalo)..."
-        }) { Text("Sincronizar ahora") }
+            tgStatus = context.getString(R.string.telegram_status_syncing)
+        }) { Text(stringResource(R.string.action_sync_now)) }
         if (tgStatus != null) Text(tgStatus!!, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))
-        Text("Publicidad bloqueada", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.ads_section_title), style = MaterialTheme.typography.titleMedium)
         if (blockedPhrases.isEmpty()) {
-            Text("Ninguna todavía — desde el Historial puedes marcar un mensaje como publicidad.", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.ads_section_empty), style = MaterialTheme.typography.bodySmall)
         } else {
             blockedPhrases.forEach { bp -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) { Text(bp.wallet, style = MaterialTheme.typography.bodySmall); Text(bp.phrase, style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { AdFilterConfig.remove(context, bp.wallet, bp.phrase); blockedPhrases = AdFilterConfig.list(context) }) { Text("Quitar") }
+                TextButton(onClick = { AdFilterConfig.remove(context, bp.wallet, bp.phrase); blockedPhrases = AdFilterConfig.list(context) }) { Text(stringResource(R.string.action_remove)) }
             } }
         }
         Spacer(Modifier.height(24.dp))
@@ -471,7 +582,7 @@ enum class PickerTarget { WALLET, APP }
 }
 
 @Composable private fun SettingSwitch(label: String, value: Boolean, onChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = if (value) Color(0xFF188038) else Color.Red); Switch(checked = value, onCheckedChange = onChange) } }
-@Composable private fun PermissionRow(label: String, enabled: Boolean, onClick: () -> Unit) { Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = if (enabled) Color(0xFF188038) else Color.Red, modifier = Modifier.weight(1f)); TextButton(onClick = onClick) { Text(if (enabled) "✓" else "Habilitar") } } }
+@Composable private fun PermissionRow(label: String, enabled: Boolean, onClick: () -> Unit) { Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = if (enabled) Color(0xFF188038) else Color.Red, modifier = Modifier.weight(1f)); TextButton(onClick = onClick) { Text(stringResource(if (enabled) R.string.permission_ok else R.string.permission_enable)) } } }
 @Composable private fun AppIcon(packageId: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val bitmap = remember(packageId) {

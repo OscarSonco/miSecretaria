@@ -2,11 +2,11 @@
 
 Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Claude.
 
-## ESTADO ACTUAL (actualizado 2026-09-23)
+## ESTADO ACTUAL (actualizado 2026-09-24)
 
-Código en disco = v2.18 (`versionCode=2018`) — el usuario ya publicó e instaló hasta 2.17;
-2.18 es un fix de la misma noche, todavía sin publicar (build Interna ya generada). Reglas de
-trabajo con el usuario:
+Código en disco = v2.19 (`versionCode=2019`) — el usuario ya publicó e instaló hasta 2.17;
+2.18 y 2.19 son fixes/features sin publicar todavía (build Interna de 2.19 ya generada). Reglas
+de trabajo con el usuario:
 - ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
   interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
   siempre por su cuenta, vía "Buscar actualización" en la app.
@@ -21,6 +21,64 @@ trabajo con el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.19 (2026-09-24) — textos centralizados (renombrado seguro) + gestión de historial (borrar/fijar/copiar/nota)
+
+Pedido explícito del usuario: (1) poder cambiar CUALQUIER texto visible de la app o del bot
+(títulos, botones, ayuda de Telegram, incluso el nombre de un comando como `/renombrar`) editando
+un solo lugar, sin arriesgar romper la lógica; (2) poder eliminar 1, varias o todas las
+notificaciones del historial; (3) copiar el texto de una notificación al portapapeles; (4) fijar
+("pinear") hasta 2 notificaciones para que queden siempre arriba; (5) poder añadirle una nota
+personal a cualquier notificación.
+
+- ✅ **Centralización de texto — arquitectura nueva, dos piezas:**
+  - `app/src/main/res/values/strings.xml` (nuevo): TODO el texto visible de la UI (Compose) —
+    `MainActivity.kt` completo, y también `WalletNotificationNotifier.kt`/`WalletOverlay.kt`/
+    `PaymentAlertActivity.kt` (que antes repetían "Pago recibido: X"/"Repetir"/"OK" cada uno por
+    su lado) — ahora leen el mismo string (`R.string.notif_title_payment`, etc.). Es el mecanismo
+    NATIVO de Android para esto: cambiar una palabra es editar un `<string>` en este XML y
+    recompilar, sin tocar ningún `.kt`. Los textos con partes variables usan `%1$s`/`%1$d`
+    (ej. `history_title_filtered` = "Historial (%1$d de %2$d)").
+  - `BotTexts.kt` (nuevo): todo el texto Y los nombres de comando del bot de Telegram
+    (`/notificar`, `/notificarpantalla`, `/renombrar`, `/help`, `/start`) como constantes
+    (`CMD_NOTIFY`, `CMD_RENAME`, etc.) y funciones que arman los mensajes (`help()`,
+    `notifyUsageError()`, `renamed()`). `TelegramCommandHandler.kt` ya NO tiene ningún texto ni
+    nombre de comando hardcodeado — construye sus `Regex` a partir de `BotTexts.CMD_*`. Cambiar
+    `/renombrar` por `/rebautizar`, por ejemplo, es editar una sola constante en `BotTexts.kt`
+    (`CMD_RENAME = "rebautizar"`) y el `/help` y la detección del comando quedan consistentes
+    automáticamente — no hace falta tocar `TelegramCommandHandler.kt`.
+  - No se centralizaron los mensajes internos de `ScoSecretariaLogger` (log de depuración) — son
+    diagnóstico técnico, no texto de marca/UX, y son decenas repartidos en muchos archivos; fuera
+    de alcance de este pedido.
+- ✅ **Borrar notificaciones del historial** (`HomeScreen`): cada tarjeta tiene ahora un botón
+  "Eliminar" (borrado inmediato, sin confirmación — mismo criterio que "Quitar" en
+  billeteras/apps). Para varias a la vez: botón "Seleccionar" arriba del historial activa
+  casillas de verificación por tarjeta; con 1+ seleccionadas aparece "Eliminar seleccionadas (n)"
+  (SÍ pide confirmación, por ser una acción sobre varios elementos a la vez). Para todo: botón
+  "Vaciar historial" (visible si hay algo en el historial) con confirmación explícita antes de
+  borrar. `WalletNotificationStore.remove(id)`/`removeAll(ids)` (nuevas) también limpian el
+  registro si estaba en `pending` o `pinned`, para no dejar referencias colgando a una
+  notificación que ya no existe.
+- ✅ **Copiar al portapapeles**: botón "📋 Copiar" en cada tarjeta — copia `item.message`
+  (el texto de la notificación) vía `ClipboardManager` nativo de Android, con un Toast de
+  confirmación. Sin permisos nuevos, no toca la nube.
+- ✅ **Fijar hasta 2 notificaciones** ("pin"): botón "📌 Fijar"/"📌 Quitar fijado" por tarjeta.
+  `WalletNotificationStore.pinnedIds()`/`togglePin(id)` (nuevas) guardan un set de ids en
+  `SharedPreferences` (`MAX_PINNED = 2`, constante fácil de subir si el usuario pide más).
+  `togglePin` devuelve `PinToggleResult.LIMIT_REACHED` si ya hay 2 y se intenta fijar una
+  tercera — la UI muestra un Toast avisando en vez de fallar en silencio. Las notificaciones
+  fijadas se muestran siempre primero en el historial (con un 📌 antes del nombre de billetera),
+  sin importar el filtro de billetera/app activo.
+- ✅ **Nota personal por notificación**: campo `note: String?` nuevo en `WalletNotification`
+  (persistido en el JSON de `WalletNotificationStore`, con `optString`/`?:JSONObject.NULL` igual
+  que `mediaPath`, así que backups/históricos viejos sin ese campo cargan igual con `note=null`).
+  Botón "📝 Nota" por tarjeta abre un campo de texto inline (Guardar/Quitar/Cancelar) vía
+  `WalletNotificationStore.setNote(id, texto)`. La nota es SOLO local — no se envía a Telegram
+  ni se lee en voz alta, es un recordatorio personal (ej. "ya facturé esto").
+- **Sin probar en el teléfono todavía** — toda esta tanda es nueva, ninguna parte se ha visto en
+  vivo (ni el borrado, ni el pin, ni copiar, ni la nota, ni que los textos movidos a `strings.xml`
+  se vean igual que antes). Compila limpio (`./gradlew assembleDebug`) y build Interna 2.19
+  generada (`Releases/miSecretariaV2.19-debug_Interna.apk`).
 
 ### Tanda v2.18 (2026-09-23, noche) — `/notificarpantalla` no mostraba nada en pantalla: bug real, confirmado en log
 
@@ -433,12 +491,13 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2018`, `versionName="2.18"` (ver `app/build.gradle.kts`,
-  subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
+- **Versión actual:** `versionCode=2019`, `versionName="2.19"` (ver `app/build.gradle.kts`,
+  subida 2026-09-24). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
   presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
   de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
-  medios + detección real de foto/audio/video de WhatsApp (Paso 2), y guardar/probar el bot de
-  Telegram en Configuración (Paso 3).
+  medios + detección real de foto/audio/video de WhatsApp (Paso 2), guardar/probar el bot de
+  Telegram en Configuración (Paso 3), y toda la tanda v2.19 (borrar/fijar/copiar/nota +
+  centralización de textos, ver esa sección — nada de eso se ha visto en el teléfono todavía).
 - **Esquema de versionCode:** `major*1000 + minor` (ej. 2.1 → 2001, 2.700 → 2700), para poder
   hacer muchos builds de prueba (2.1, 2.2, ... 2.700) antes de saltar a la siguiente versión
   entera (3.0) cuando quede estable.
@@ -497,6 +556,17 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
   + nombre + `packageId` (en rojo si está vacío — eso fue justo el bug de YASTA, ver abajo).
   Ya NO hay cuadros de texto manuales para agregar billetera/app: el único camino es el
   botón "Agregar Billetera"/"Agregar Aplicación" → abre `InstalledAppsScreen`.
+  **Desde v2.19: TODO el texto visible de este archivo viene de `res/values/strings.xml`**
+  (`stringResource(R.string.xxx)`) — no quedan literales Spanish hardcodeados en los
+  `Composable`. Cada tarjeta del historial en `HomeScreen` tiene ahora: "📋 Copiar" (copia
+  `item.message` al portapapeles vía `copyToClipboard()`, función top-level nueva que usa
+  `ClipboardManager`), "📌 Fijar"/"📌 Quitar fijado" (máx. 2, ver `WalletNotificationStore`),
+  "📝 Nota" (abre un campo de texto inline para `item.note`, ver `setNote`), y "Eliminar"
+  (borrado inmediato de esa notificación). Arriba del historial hay un botón "Seleccionar" que
+  activa casillas de verificación por tarjeta para borrar varias a la vez
+  ("Eliminar seleccionadas (n)", con confirmación) y un botón "Vaciar historial" (con
+  confirmación) para borrar todo. Las notificaciones fijadas se reordenan siempre al principio
+  de la lista mostrada (`ordered = pinned + rest`), sin importar el filtro activo.
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,
@@ -516,7 +586,9 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
   `timeout=25s` y delega en `TelegramCommandHandler` — se aprovecha que este servicio YA corre
   todo el tiempo que la app tenga permiso de notificaciones, sin necesitar un mecanismo nuevo.
 - `WalletNotificationNotifier.kt` — notificación del sistema (top deslizable) + `fullScreenIntent`
-  (solo para pagos, si "Pantalla completa" está activado).
+  (solo para pagos, si "Pantalla completa" está activado). Desde v2.19, el título/nombre/
+  descripción del canal salen de `strings.xml` (`context.getString(...)`) en vez de estar
+  hardcodeados.
 - `WalletOverlay.kt` — el aviso flotante ("Pantalla de aviso"), vistas nativas de Android
   (no Compose). Botones Repetir (azul/blanco) y OK (amarillo/rojo). Desde v2.17: el encabezado
   "Pago recibido: X" y el monto solo se muestran si `item.kind == PAYMENT`; para
@@ -524,12 +596,16 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
   **v2.18:** `show()`/`remove()` saltan al hilo principal con `Handler(Looper.getMainLooper())`
   si se llaman desde otro hilo — crear `View`s fuera del hilo principal tiraba
   "Can't create handler inside thread ... Looper.prepare()" y el aviso nunca se mostraba
-  (pasaba con `/notificarpantalla`, que llega por el polling de Telegram en `Dispatchers.IO`)
-  inventado.
+  (pasaba con `/notificarpantalla`, que llega por el polling de Telegram en `Dispatchers.IO`).
+  **v2.19:** los textos "Pago recibido: X"/"Repetir"/"OK" ahora salen de `strings.xml`
+  (`context.getString(R.string.notif_title_payment, ...)`, etc.), mismo string que usan
+  `WalletNotificationNotifier` y `PaymentAlertActivity` — cambiar la frase en un solo lugar
+  la cambia en los tres.
 - `PaymentAlertActivity.kt` — pantalla completa de pago (cuando "Pantalla completa" está ON).
   Mismos colores de botones que el overlay. Desde v2.17: recibe `EXTRA_KIND` en el Intent — con
   `PAYMENT` muestra "Pago recibido: X" + monto; con cualquier otro kind (`ALERT` de
-  `/notificarpantalla`) solo el nombre + mensaje.
+  `/notificarpantalla`) solo el nombre + mensaje. Desde v2.19, esos textos vienen de
+  `strings.xml` vía `stringResource(...)` (mismo string que `WalletOverlay`).
 - `WalletConfig.kt` / `AppConfig.kt` — registros de billeteras y "aplicaciones generales"
   respectivamente (mismo patrón, `SharedPreferences` con formato `nombre|paquete|enabled`).
   **`detect()` corregido (Paso 1, 2026-09-23):** recibe `packageName`, `title`, `text` por
@@ -555,14 +631,21 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
   `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (con `timeoutSeconds`
   opcional desde v2.16 para long-polling real — conexión abierta hasta que llega un mensaje o
   se agota el tiempo). Todo con `HttpURLConnection` + `org.json`.
-- `TelegramCommandHandler.kt` (nuevo v2.16, ampliado v2.17) — lógica de `/help`, `/notificar`
-  (solo audio), `/notificarpantalla` (audio + pantalla, `NotificationKind.ALERT`), `/renombrar`
-  — objeto compartido (recibe `context` explícito), usado tanto por el long-polling en tiempo
-  real (`WalletNotificationListener`) como por el respaldo periódico (`TelegramSyncWorker`). Si
-  un comando no calza con el patrón completo (ej. el usuario mandó el comando y el mensaje en
-  dos envíos separados de Telegram), responde con la sintaxis correcta y un ejemplo en vez de
-  quedarse callado. Los prefijos usan límite de palabra (`^/notificar\b`) para no confundir
-  `/notificar` con `/notificarpantalla`.
+- `BotTexts.kt` (nuevo v2.19) — TODO el texto del bot de Telegram y los nombres de sus
+  comandos (`CMD_NOTIFY`, `CMD_NOTIFY_SCREEN`, `CMD_RENAME`, `CMD_HELP`, `CMD_START`) en un
+  solo lugar. `TelegramCommandHandler.kt` construye sus `Regex` a partir de estas constantes
+  (`"^/${BotTexts.CMD_NOTIFY}\\b"`), así que renombrar un comando (ej. `/renombrar` →
+  `/rebautizar`) es cambiar una constante aquí — la detección y el `/help` quedan consistentes
+  solos, sin tocar `TelegramCommandHandler.kt`.
+- `TelegramCommandHandler.kt` (nuevo v2.16, ampliado v2.17, sin texto propio desde v2.19) —
+  lógica de `/help`, `/notificar` (solo audio), `/notificarpantalla` (audio + pantalla,
+  `NotificationKind.ALERT`), `/renombrar` — objeto compartido (recibe `context` explícito),
+  usado tanto por el long-polling en tiempo real (`WalletNotificationListener`) como por el
+  respaldo periódico (`TelegramSyncWorker`). Si un comando no calza con el patrón completo (ej.
+  el usuario mandó el comando y el mensaje en dos envíos separados de Telegram), responde con
+  la sintaxis correcta y un ejemplo (texto en `BotTexts.kt`) en vez de quedarse callado. Los
+  prefijos usan límite de palabra (`^/notificar\b`) para no confundir `/notificar` con
+  `/notificarpantalla`.
 - `TelegramConfig.kt` — guarda token del bot / chat id en `SharedPreferences`.
   **Rediseño Paso 3 (2026-09-23, un solo bot para todas las sucursales, decisión del usuario):**
   se cambió `lastUpdateId` (un offset que se le confirmaba a Telegram) por
@@ -619,7 +702,13 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
 - `UpdateManager.kt` — actualización remota: consulta `update.json` (Firebase Hosting),
   descarga con `DownloadManager` e instala. Ver sección "Firebase / GitHub" abajo.
 - `WalletNotificationStore.kt` — historial persistido (JSON en `SharedPreferences`),
-  export a texto plano y CSV.
+  export a texto plano y CSV. **Desde v2.19:** `remove(id)`/`removeAll(ids)` borran de
+  `HISTORY`/`PENDING`/`PINNED` a la vez (para no dejar ids colgando); `clearHistory()` también
+  limpia `PINNED`. `pinnedIds()`/`togglePin(id)` (devuelve `PinToggleResult`:
+  `PINNED`/`UNPINNED`/`LIMIT_REACHED`) manejan el set de hasta `MAX_PINNED=2` notificaciones
+  fijadas, en `SharedPreferences` bajo la clave `"pinned"`. `setNote(id, texto)` actualiza el
+  campo `note` (nuevo en `WalletNotification`, persistido igual que `mediaPath` con
+  `optString`/`JSONObject.NULL` para compatibilidad con historiales viejos sin ese campo).
 - `BackupManager.kt` — backup/restauración en JSON de: preferencias, billeteras, apps
   generales, **y desde v2.13 también token+Chat ID+intervalo de Telegram** (sección
   `"telegram"`, a propósito SIN el nombre de sucursal — cada teléfono conserva el suyo). Es la

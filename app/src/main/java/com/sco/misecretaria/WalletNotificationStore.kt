@@ -7,11 +7,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class PinToggleResult { PINNED, UNPINNED, LIMIT_REACHED }
+
 object WalletNotificationStore {
     private const val PREFS = "scosecretaria_v01"
     private const val PENDING = "pending"
     private const val HISTORY = "history"
     private const val SEEN = "seen"
+    private const val PINNED = "pinned"
+    const val MAX_PINNED = 2
     private lateinit var context: Context
 
     fun init(appContext: Context) {
@@ -49,9 +53,59 @@ object WalletNotificationStore {
         return true
     }
 
+    /** Nota personal del usuario sobre una notificación (no viene de la app/billetera de
+     * origen). `note = null` o vacía la quita. */
+    @Synchronized
+    fun setNote(id: String, note: String?) {
+        val trimmed = note?.trim()?.takeIf { it.isNotBlank() }
+        save(HISTORY, history().map { if (it.id == id) it.copy(note = trimmed) else it })
+        save(PENDING, pending().map { if (it.id == id) it.copy(note = trimmed) else it })
+    }
+
+    @Synchronized
+    fun remove(id: String) {
+        save(HISTORY, history().filterNot { it.id == id })
+        save(PENDING, pending().filterNot { it.id == id })
+        savePinned(pinnedIds() - id)
+    }
+
+    @Synchronized
+    fun removeAll(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        save(HISTORY, history().filterNot { it.id in ids })
+        save(PENDING, pending().filterNot { it.id in ids })
+        savePinned(pinnedIds() - ids)
+    }
+
     @Synchronized
     fun clearHistory() {
         save(HISTORY, emptyList())
+        savePinned(emptySet())
+    }
+
+    /** Notificaciones fijadas por el usuario (máximo [MAX_PINNED]) — siempre se muestran
+     * primero en el Historial, sin importar el filtro de billetera/app activo. */
+    @Synchronized
+    fun pinnedIds(): Set<String> {
+        if (!::context.isInitialized) return emptySet()
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(PINNED, emptySet()) ?: emptySet()
+    }
+
+    @Synchronized
+    fun togglePin(id: String): PinToggleResult {
+        val current = pinnedIds().toMutableSet()
+        if (current.remove(id)) {
+            savePinned(current)
+            return PinToggleResult.UNPINNED
+        }
+        if (current.size >= MAX_PINNED) return PinToggleResult.LIMIT_REACHED
+        current.add(id)
+        savePinned(current)
+        return PinToggleResult.PINNED
+    }
+
+    private fun savePinned(ids: Set<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(PINNED, ids).apply()
     }
 
     fun now(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
@@ -97,6 +151,7 @@ object WalletNotificationStore {
                     .put("receivedAt", it.receivedAt)
                     .put("kind", it.kind.name)
                     .put("mediaPath", it.mediaPath ?: JSONObject.NULL)
+                    .put("note", it.note ?: JSONObject.NULL)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -124,7 +179,8 @@ object WalletNotificationStore {
                             message = item.getString("message"),
                             receivedAt = item.getString("receivedAt"),
                             kind = runCatching { NotificationKind.valueOf(item.optString("kind", NotificationKind.PAYMENT.name)) }.getOrDefault(NotificationKind.PAYMENT),
-                            mediaPath = item.optString("mediaPath", null)?.takeIf { it.isNotBlank() && it != "null" }
+                            mediaPath = item.optString("mediaPath", null)?.takeIf { it.isNotBlank() && it != "null" },
+                            note = item.optString("note", null)?.takeIf { it.isNotBlank() && it != "null" }
                         )
                     )
                 }

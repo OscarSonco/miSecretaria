@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sco.misecretaria.ui.theme.ScoSecretariaTheme
 
@@ -27,7 +28,7 @@ class PaymentAlertActivity : ComponentActivity() {
         val isPayment = runCatching { NotificationKind.valueOf(intent.getStringExtra(EXTRA_KIND) ?: NotificationKind.PAYMENT.name) }.getOrDefault(NotificationKind.PAYMENT) == NotificationKind.PAYMENT
         setContent { ScoSecretariaTheme { Column(Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(14.dp)) {
             if (isPayment) {
-                Text("Pago recibido: $wallet", style=MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.notif_title_payment, wallet), style=MaterialTheme.typography.headlineSmall)
                 Text(AmountFormatter.amount(message), color=Color.Red, style=MaterialTheme.typography.headlineLarge)
             } else {
                 Text(wallet, style=MaterialTheme.typography.headlineSmall)
@@ -35,9 +36,9 @@ class PaymentAlertActivity : ComponentActivity() {
             Text(message, style=MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 if (DisplayPreferences.buttons(this@PaymentAlertActivity) == AlertButtons.REPEAT_AND_OK) {
-                    Button(onClick={ SpeechEngine.speak(this@PaymentAlertActivity, WalletNotification(id,wallet,"",message,"")) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White)) { Text("Repetir") }
+                    Button(onClick={ SpeechEngine.speak(this@PaymentAlertActivity, WalletNotification(id,wallet,"",message,"")) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White)) { Text(stringResource(R.string.action_repeat)) }
                 }
-                Button(onClick={ acknowledge(id) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFEB3B), contentColor = Color.Red)) { Text("OK") }
+                Button(onClick={ acknowledge(id) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFEB3B), contentColor = Color.Red)) { Text(stringResource(R.string.action_ok)) }
             }
         } } }
     }

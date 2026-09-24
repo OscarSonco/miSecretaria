@@ -50,7 +50,7 @@ object WalletOverlay {
         }
         val isPayment = item.kind == NotificationKind.PAYMENT
         overlay.addView(TextView(context).apply {
-            text = if (isPayment) "Pago recibido: ${item.wallet}" else item.wallet
+            text = if (isPayment) context.getString(R.string.notif_title_payment, item.wallet) else item.wallet
             textSize = 21f
             setTextColor(Color.rgb(20, 20, 20))
         })
@@ -68,13 +68,13 @@ object WalletOverlay {
         })
         val buttons = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         if (DisplayPreferences.buttons(context) == AlertButtons.REPEAT_AND_OK) buttons.addView(Button(context).apply {
-            text = "Repetir"
+            text = context.getString(R.string.action_repeat)
             setBackgroundColor(Color.rgb(21, 101, 192))
             setTextColor(Color.WHITE)
             setOnClickListener { SpeechEngine.speak(context, item) }
         })
         buttons.addView(Button(context).apply {
-            text = "OK"
+            text = context.getString(R.string.action_ok)
             setBackgroundColor(Color.rgb(255, 235, 59))
             setTextColor(Color.RED)
             setOnClickListener {

@@ -33,8 +33,22 @@ notificaciones cuando pasa mucho tiempo sin usarla.
 - **Encendido/Apagado**: en la pantalla principal, el botón grande activa o desactiva por
   completo la escucha de notificaciones (útil si quieres pausarla un rato sin desinstalar).
 - **Historial**: lista de todo lo detectado, con filtro por billetera/app arriba. Cada tarjeta
-  tiene un botón "🚫 Marcar como publicidad" para silenciar mensajes promocionales repetidos
-  de esa misma billetera.
+  tiene:
+  - **📋 Copiar**: copia el texto de esa notificación al portapapeles (para pegarlo donde
+    quieras).
+  - **📌 Fijar / 📌 Quitar fijado**: fija hasta 2 notificaciones a la vez para que aparezcan
+    siempre primero en la lista, sin importar el filtro. Si ya tienes 2 fijadas, avisa que
+    quites una antes de fijar otra.
+  - **📝 Nota**: agrega una nota personal a esa notificación (solo la ves tú — no se envía por
+    Telegram ni se lee en voz alta).
+  - **Eliminar**: borra esa notificación del historial (sin confirmación, como "Quitar" en
+    Billeteras/Apps).
+  - **🚫 Marcar como publicidad**: silencia mensajes promocionales repetidos de esa misma
+    billetera.
+  - Botón **"Seleccionar"** (arriba del historial): activa casillas para elegir varias
+    notificaciones y borrarlas juntas con **"Eliminar seleccionadas"** (pide confirmación).
+  - Botón **"Vaciar historial"**: borra TODO el historial de una vez (pide confirmación —
+    no se puede deshacer).
 - **Leer**: pantalla para pegar o escribir cualquier texto y que la app lo lea en voz alta
   (con pausa/reanudar y elección de voz Varón/Mujer).
 

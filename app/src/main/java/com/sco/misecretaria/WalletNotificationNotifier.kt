@@ -14,8 +14,8 @@ object WalletNotificationNotifier {
     fun show(context: Context, item: WalletNotification) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(channelId, "Pagos recibidos", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Avisos urgentes de billeteras autorizadas"
+            NotificationChannel(channelId, context.getString(R.string.notif_channel_name), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = context.getString(R.string.notif_channel_desc)
                 enableVibration(true)
                 setShowBadge(true)
             }
@@ -30,7 +30,7 @@ object WalletNotificationNotifier {
         )
         val builder = Notification.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(if (item.kind == NotificationKind.PAYMENT) "Pago recibido: ${item.wallet}" else item.wallet)
+            .setContentTitle(if (item.kind == NotificationKind.PAYMENT) context.getString(R.string.notif_title_payment, item.wallet) else item.wallet)
             .setContentText(item.message)
             .setStyle(Notification.BigTextStyle().bigText(item.message))
             .setCategory(Notification.CATEGORY_MESSAGE)

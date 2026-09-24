@@ -1,3 +1,129 @@
 <resources>
     <string name="app_name">miSecretaria</string>
+
+    <!-- Acciones genéricas reutilizadas en varias pantallas. Cambiar aquí afecta a todas. -->
+    <string name="action_back">Volver</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_accept">Aceptar</string>
+    <string name="action_remove">Quitar</string>
+    <string name="action_delete">Eliminar</string>
+    <string name="action_delete_selected">Eliminar seleccionadas (%1$d)</string>
+    <string name="action_select">Seleccionar</string>
+    <string name="action_select_done">Listo</string>
+    <string name="action_clear_history">Vaciar historial</string>
+    <string name="action_copy">📋 Copiar</string>
+    <string name="action_pin">📌 Fijar</string>
+    <string name="action_unpin">📌 Quitar fijado</string>
+    <string name="toast_copied">Copiado al portapapeles</string>
+    <string name="pin_limit_reached">Ya tienes %1$d notificaciones fijadas como máximo — quita una primero</string>
+    <string name="action_add_note">📝 Nota</string>
+    <string name="note_field_label">Escribe una nota para esta notificación</string>
+    <string name="action_save_note">Guardar nota</string>
+
+    <!-- Diálogos de confirmación de borrado -->
+    <string name="confirm_delete_selected_title">¿Eliminar %1$d notificación(es)?</string>
+    <string name="confirm_delete_body">Esta acción no se puede deshacer.</string>
+    <string name="confirm_clear_history_title">¿Vaciar todo el historial?</string>
+    <string name="confirm_clear_history_body">Se borrarán las %1$d notificaciones guardadas. Esta acción no se puede deshacer.</string>
+
+    <!-- Compartir / Toasts generales -->
+    <string name="share_chooser_title">Compartir %1$s</string>
+    <string name="toast_backup_restored">Backup restaurado</string>
+    <string name="toast_backup_restore_failed">No se pudo restaurar el backup</string>
+
+    <!-- Selector de apps instaladas -->
+    <string name="picker_title_wallet">Elegir billetera</string>
+    <string name="picker_title_app">Elegir aplicación</string>
+    <string name="label_search">Buscar</string>
+    <string name="installed_apps_loading">Cargando aplicaciones instaladas...</string>
+
+    <!-- Pantalla principal (Home) -->
+    <string name="home_subtitle">Asistente de notificaciones de billeteras móviles</string>
+    <string name="action_settings">Configuración</string>
+    <string name="action_read">Leer</string>
+    <string name="service_toggle_on">%1$s: Activado</string>
+    <string name="service_toggle_off">%1$s: Desactivado</string>
+    <string name="service_status_alive">Servicio: escuchando ✓</string>
+    <string name="service_status_dead">Servicio: sin actividad reciente ⚠</string>
+    <string name="history_title">Historial (%1$d)</string>
+    <string name="history_title_filtered">Historial (%1$d de %2$d)</string>
+    <string name="filter_all">Todas</string>
+    <string name="ad_block_phrase_label">Frase para bloquear futuros similares</string>
+    <string name="action_block">Bloquear</string>
+    <string name="action_mark_ad">🚫 Marcar como publicidad</string>
+    <string name="pin_dialog_title">PIN de administrador</string>
+    <string name="pin_dialog_body">Solo para editar el token y Chat ID de Telegram.</string>
+    <string name="pin_label">PIN</string>
+    <string name="pin_error">PIN incorrecto</string>
+
+    <!-- Pantalla "Leer" -->
+    <string name="read_placeholder">Pega o escribe el texto a leer</string>
+    <string name="action_read_aloud">Leer en voz alta</string>
+    <string name="action_resume">Reanudar</string>
+    <string name="action_pause">Pausa</string>
+    <string name="action_stop">Detener</string>
+
+    <!-- Configuración -->
+    <string name="perm_notifications">Acceso a notificaciones</string>
+    <string name="perm_overlay">Mostrar sobre otras aplicaciones</string>
+    <string name="perm_media">Acceso a medios (fotos/audio/video de WhatsApp)</string>
+    <string name="permission_ok">✓</string>
+    <string name="permission_enable">Habilitar</string>
+    <string name="installed_version">Versión instalada: %1$s</string>
+    <string name="checking_update">Buscando...</string>
+    <string name="action_check_update">Buscar actualización</string>
+    <string name="up_to_date">Estás en la última versión.</string>
+    <string name="update_available">Nueva versión disponible: %1$s</string>
+    <string name="action_update_now">Actualizar ahora</string>
+    <string name="setting_speech">Notificación hablada</string>
+    <string name="setting_alert_overlay">Pantalla de aviso</string>
+    <string name="setting_fullscreen">Pantalla completa</string>
+    <string name="alert_buttons_title">Botones del aviso</string>
+    <string name="alert_buttons_ok_only">Solo OK</string>
+    <string name="alert_buttons_repeat_ok">Repetir y OK</string>
+    <string name="voice_type_title">Tipo de voz</string>
+    <string name="speech_rate_title">Velocidad de lectura: %1$sx</string>
+    <string name="action_install_voices">Instalar más voces</string>
+    <string name="action_share_history">Compartir Historial</string>
+    <string name="action_share_csv">Compartir CSV</string>
+    <string name="action_share_log">Compartir Log</string>
+    <string name="action_share_apk">Compartir Aplicación</string>
+    <string name="backup_section_title">Copia de seguridad (config., billeteras, apps)</string>
+    <string name="action_save_backup">Guardar Backup</string>
+    <string name="action_restore_backup">Restaurar Backup</string>
+    <string name="wallets_section_title">Billeteras autorizadas</string>
+    <string name="no_package">(sin paquete)</string>
+    <string name="action_add_wallet">Agregar Billetera</string>
+    <string name="apps_section_title">Aplicaciones (General)</string>
+    <string name="apps_section_hint">WhatsApp, Messenger, SMS u otras: lee el título de la app + el mensaje completo.</string>
+    <string name="action_add_app">Agregar Aplicación</string>
+    <string name="telegram_section_title">Telegram</string>
+    <string name="telegram_section_hint">Envía por Telegram un CSV con las notificaciones nuevas cada cierto tiempo, y recibe avisos remotos vía /notificar TODOS|sucursal mensaje.</string>
+    <string name="device_label_field">Nombre de sucursal/dispositivo</string>
+    <string name="telegram_token_field">Token del bot</string>
+    <string name="telegram_chatid_field">Chat ID</string>
+    <string name="telegram_token_status">Token: %1$s</string>
+    <string name="telegram_chatid_status">Chat ID: %1$s</string>
+    <string name="status_not_configured">(no configurado)</string>
+    <string name="status_configured_masked">•••• configurado</string>
+    <string name="telegram_masked_hint">Toca 3 veces el logo de la pantalla principal para editarlos.</string>
+    <string name="telegram_interval_field">Intervalo (minutos, mínimo 15)</string>
+    <string name="action_save_activate">Guardar y activar</string>
+    <string name="telegram_test_message">✅ Prueba de conexión desde %1$s</string>
+    <string name="action_send_test">Enviar mensaje de prueba</string>
+    <string name="telegram_status_saved">Guardado.</string>
+    <string name="telegram_status_sending">Enviando...</string>
+    <string name="telegram_status_sent">Mensaje de prueba enviado.</string>
+    <string name="telegram_status_send_failed">No se pudo enviar — revisa token/chat id.</string>
+    <string name="action_sync_now">Sincronizar ahora</string>
+    <string name="telegram_status_syncing">Sincronizando ahora (revisa comandos y envía el CSV pendiente, sin esperar el intervalo)...</string>
+    <string name="ads_section_title">Publicidad bloqueada</string>
+    <string name="ads_section_empty">Ninguna todavía — desde el Historial puedes marcar un mensaje como publicidad.</string>
+
+    <!-- Notificación del sistema / pantalla completa / aviso flotante (compartidas) -->
+    <string name="notif_channel_name">Pagos recibidos</string>
+    <string name="notif_channel_desc">Avisos urgentes de billeteras autorizadas</string>
+    <string name="notif_title_payment">Pago recibido: %1$s</string>
+    <string name="action_repeat">Repetir</string>
+    <string name="action_ok">OK</string>
 </resources>
