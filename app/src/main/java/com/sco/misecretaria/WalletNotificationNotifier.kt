@@ -39,7 +39,7 @@ object WalletNotificationNotifier {
             .setOngoing(false)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
-        if (item.kind == NotificationKind.PAYMENT && DisplayPreferences.fullScreenEnabled(context)) {
+        if ((item.kind == NotificationKind.PAYMENT || item.kind == NotificationKind.ALERT) && DisplayPreferences.fullScreenEnabled(context)) {
             val fullScreenIntent = PendingIntent.getActivity(
                 context,
                 item.id.hashCode(),
@@ -47,6 +47,7 @@ object WalletNotificationNotifier {
                     putExtra(PaymentAlertActivity.EXTRA_ID, item.id)
                     putExtra(PaymentAlertActivity.EXTRA_WALLET, item.wallet)
                     putExtra(PaymentAlertActivity.EXTRA_MESSAGE, item.message)
+                    putExtra(PaymentAlertActivity.EXTRA_KIND, item.kind.name)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

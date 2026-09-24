@@ -33,12 +33,13 @@ object WalletOverlay {
             }
             elevation = 16f
         }
+        val isPayment = item.kind == NotificationKind.PAYMENT
         overlay.addView(TextView(context).apply {
-            text = "Pago recibido: ${item.wallet}"
+            text = if (isPayment) "Pago recibido: ${item.wallet}" else item.wallet
             textSize = 21f
             setTextColor(Color.rgb(20, 20, 20))
         })
-        overlay.addView(TextView(context).apply {
+        if (isPayment) overlay.addView(TextView(context).apply {
             text = AmountFormatter.amount(item.message)
             textSize = 30f
             setTextColor(Color.RED)

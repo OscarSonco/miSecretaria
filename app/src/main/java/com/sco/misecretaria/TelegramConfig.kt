@@ -34,19 +34,23 @@ object TelegramConfig {
      * comandos a TODOS los teléfonos que consulten, no solo al primero. Cada dispositivo
      * recuerda LOCALMENTE qué `update_id` ya procesó para no repetir el mismo comando en cada
      * ciclo (Telegram retiene los últimos ~100/24h sin confirmar).
+     *
+     * `@Synchronized`: desde v2.16 hay DOS consumidores del mismo lote de `updates` — el
+     * long-polling en tiempo real (`WalletNotificationListener`) y el respaldo periódico
+     * (`TelegramSyncWorker`) — corriendo en hilos distintos. Si "ya lo vi" y "márcalo como
+     * visto" fueran dos pasos separados, ambos podían pasar el primer paso casi al mismo
+     * tiempo y procesar el MISMO comando dos veces (esto es lo que causó que un `/notificar`
+     * se leyera dos veces). Ahora es un solo paso atómico: devuelve `true` únicamente para
+     * quien lo marca primero.
      */
-    fun isUpdateProcessed(context: Context, updateId: Long): Boolean =
-        processedUpdateIds(context).contains(updateId.toString())
-
-    fun markUpdateProcessed(context: Context, updateId: Long) {
+    @Synchronized
+    fun markUpdateIfNew(context: Context, updateId: Long): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val current = (prefs.getStringSet(PROCESSED_UPDATE_IDS, emptySet()) ?: emptySet()).toMutableSet()
-        current.add(updateId.toString())
+        if (!current.add(updateId.toString())) return false
         prefs.edit().putStringSet(PROCESSED_UPDATE_IDS, current.toList().takeLast(300).toSet()).apply()
+        return true
     }
-
-    private fun processedUpdateIds(context: Context): Set<String> =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(PROCESSED_UPDATE_IDS, emptySet()) ?: emptySet()
 
     fun isConfigured(context: Context) = botToken(context).isNotBlank() && chatId(context).isNotBlank()
 

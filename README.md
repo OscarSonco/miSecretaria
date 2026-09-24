@@ -126,10 +126,14 @@ separados, el bot no reconoce ninguno de los dos y no hace nada (no te avisa del
 que ya tengas v2.15+, que sí te responde con la sintaxis correcta si te equivocas).
 
 - `/help` (o `/start`) — te devuelve la lista completa de comandos.
-- `/notificar TODOS <mensaje>` — el mensaje se anuncia (voz + notificación) en TODAS las
-  sucursales conectadas. Ejemplo real: `/notificar TODOS Cerramos a las 8pm hoy`
-- `/notificar <nombre_de_sucursal> <mensaje>` — solo se anuncia en esa sucursal. Ejemplo:
-  `/notificar MS-7K2F9Q Reunión a las 3pm`
+- `/notificar TODOS <mensaje>` — **solo audio**: lee el mensaje en voz alta en todas las
+  sucursales, sin nada en pantalla. Ejemplo: `/notificar TODOS Cerramos a las 8pm hoy`
+- `/notificarpantalla TODOS <mensaje>` — **audio + pantalla**: además de leerlo, lo muestra en
+  pantalla completa (si tienes esa opción activada) o como aviso flotante — igual que un pago
+  recibido, pero sin decir "Pago recibido" ni inventar un monto. Ejemplo:
+  `/notificarpantalla TODOS Vino el proveedor, revisen`
+- Con cualquiera de los dos, cambia `TODOS` por el nombre o código de una sucursal para
+  avisarle solo a esa. Ejemplo: `/notificar MS-7K2F9Q Reunión a las 3pm`
 - `/renombrar <código_actual> <nombre_nuevo>` — si una sucursal se quedó con el código
   alfanumérico automático (ej. `MS-7K2F9Q`) y quieres darle un nombre más claro, así se lo
   cambias sin tocar el teléfono. Ejemplo: `/renombrar MS-7K2F9Q Sucursal Centro`

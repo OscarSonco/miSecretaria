@@ -24,9 +24,14 @@ class PaymentAlertActivity : ComponentActivity() {
         super.onCreate(savedInstanceState); setShowWhenLocked(true); setTurnScreenOn(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON)
         val id=intent.getStringExtra(EXTRA_ID).orEmpty(); val wallet=intent.getStringExtra(EXTRA_WALLET).orEmpty(); val message=intent.getStringExtra(EXTRA_MESSAGE).orEmpty()
+        val isPayment = runCatching { NotificationKind.valueOf(intent.getStringExtra(EXTRA_KIND) ?: NotificationKind.PAYMENT.name) }.getOrDefault(NotificationKind.PAYMENT) == NotificationKind.PAYMENT
         setContent { ScoSecretariaTheme { Column(Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(14.dp)) {
-            Text("Pago recibido: $wallet", style=MaterialTheme.typography.headlineSmall)
-            Text(AmountFormatter.amount(message), color=Color.Red, style=MaterialTheme.typography.headlineLarge)
+            if (isPayment) {
+                Text("Pago recibido: $wallet", style=MaterialTheme.typography.headlineSmall)
+                Text(AmountFormatter.amount(message), color=Color.Red, style=MaterialTheme.typography.headlineLarge)
+            } else {
+                Text(wallet, style=MaterialTheme.typography.headlineSmall)
+            }
             Text(message, style=MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 if (DisplayPreferences.buttons(this@PaymentAlertActivity) == AlertButtons.REPEAT_AND_OK) {
@@ -37,6 +42,6 @@ class PaymentAlertActivity : ComponentActivity() {
         } } }
     }
     private fun acknowledge(id:String){ WalletNotificationStore.acknowledge(id); WalletNotificationNotifier.cancel(this,id); WalletOverlay.remove(); setResult(Activity.RESULT_OK); finish() }
-    companion object { const val EXTRA_ID="notification_id"; const val EXTRA_WALLET="wallet"; const val EXTRA_MESSAGE="message" }
+    companion object { const val EXTRA_ID="notification_id"; const val EXTRA_WALLET="wallet"; const val EXTRA_MESSAGE="message"; const val EXTRA_KIND="kind" }
 }
 object AmountFormatter { private val regex=Regex("(?i)(Bs\\.?\\s*[0-9]+(?:[.,][0-9]{1,2})?)"); fun amount(message:String)=regex.find(message)?.value ?: "Bs. --" }

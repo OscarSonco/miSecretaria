@@ -39,7 +39,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 private const val REPORT_MIME = "text/plain"
-enum class NotificationKind { PAYMENT, GENERAL }
+// ALERT = aviso remoto de /notificarpantalla: usa la misma pantalla completa/aviso flotante
+// que un pago, pero sin el encabezado "Pago recibido" ni el monto (no es un pago real).
+enum class NotificationKind { PAYMENT, GENERAL, ALERT }
 data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT, val mediaPath: String? = null)
 
 class MainActivity : ComponentActivity() {

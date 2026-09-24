@@ -63,8 +63,7 @@ class WalletNotificationListener : NotificationListenerService() {
                 TelegramClient.getUpdates(token, offset = 0, timeoutSeconds = TELEGRAM_LONGPOLL_TIMEOUT_SEC)
             }.getOrDefault(emptyList())
             for (update in updates) {
-                if (TelegramConfig.isUpdateProcessed(applicationContext, update.updateId)) continue
-                TelegramConfig.markUpdateProcessed(applicationContext, update.updateId)
+                if (!TelegramConfig.markUpdateIfNew(applicationContext, update.updateId)) continue
                 if (update.chatId != chatId) continue
                 TelegramCommandHandler.handle(applicationContext, update.text.trim(), deviceLabel)
             }

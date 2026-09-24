@@ -4,8 +4,8 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-23)
 
-Código en disco = v2.16 (`versionCode=2016`) — el usuario publicó 2.14, y 2.15/2.16 son fixes
-de la misma tarde todavía sin publicar (build Interna ya generada para ambas). Reglas de
+Código en disco = v2.17 (`versionCode=2017`) — el usuario ya publicó e instaló hasta 2.16;
+2.17 es un fix de la misma tarde, todavía sin publicar (build Interna ya generada). Reglas de
 trabajo con el usuario:
 - ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
   interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
@@ -21,6 +21,37 @@ trabajo con el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.17 (2026-09-23, tarde) — race condition del dedupe + `/notificarpantalla`
+
+- 🐛→✅ **Causa real de "el /notificar se leyó dos veces":** `isUpdateProcessed`/
+  `markUpdateProcessed` eran DOS pasos separados (no atómicos). Desde 2.16 hay DOS
+  consumidores del mismo lote de `updates` corriendo en paralelo — el long-polling en tiempo
+  real (`WalletNotificationListener`) y el respaldo periódico (`TelegramSyncWorker`) — así que
+  ambos podían "ver" el mismo `update_id` como no-procesado casi al mismo tiempo y ejecutar el
+  comando dos veces. Corregido: `TelegramConfig.markUpdateIfNew` (un solo método `@Synchronized`,
+  devuelve `true` solo para quien lo marca primero) reemplaza a los dos anteriores. (No se
+  pudo confirmar 100% viendo el log del teléfono — el spam de OSMAnd, "Sin coincidencia" cada
+  ~6s durante viajes, rota el log de depuración en menos de 1h30 y se comió el rastro del
+  evento real — pero la causa por diseño es sólida y el fix es correcto de todos modos.)
+- ✅ **`/notificar` ahora es SOLO AUDIO** (pedido explícito del usuario) — ya no llama a
+  `WalletNotificationNotifier.show`/`WalletOverlay`, solo lee el mensaje y lo guarda en el
+  historial.
+- ✅ **Nuevo comando `/notificarpantalla TODOS|<sucursal> <mensaje>` = AUDIO + PANTALLA**:
+  igual que `/notificar` pero además dispara pantalla completa (si "Pantalla completa" está
+  activado) o aviso flotante (si "Pantalla de aviso" está activado) — mismo mecanismo que un
+  pago recibido, pero SIN el encabezado "Pago recibido" ni un monto inventado (antes
+  `PaymentAlertActivity`/`WalletOverlay` mostraban eso siempre, sin importar el tipo).
+  - Nuevo valor de enum `NotificationKind.ALERT` (además de `PAYMENT`/`GENERAL`) — activa el
+    fullscreen/overlay igual que `PAYMENT`, pero con el header genérico (solo `item.wallet`,
+    sin "Pago recibido:" ni monto).
+  - `PaymentAlertActivity` ahora recibe `EXTRA_KIND` en el Intent y decide qué encabezado
+    mostrar.
+  - Los prefijos de comando se revisan con límite de palabra (`^/notificar\b` vs.
+    `^/notificarpantalla\b`) para que no se confundan entre sí (`/notificarpantalla` SÍ
+    empieza con el texto "/notificar", pero no con espacio inmediatamente después).
+- **Sin probar en el teléfono todavía** ninguna parte de esta tanda (`/notificarpantalla`, el
+  fix del dedupe, `/notificar` sin pantalla).
 
 ### Tanda v2.15/v2.16 (2026-09-23, tarde) — comandos de Telegram: diagnóstico de uso + tiempo real
 
@@ -368,7 +399,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2016`, `versionName="2.16"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2017`, `versionName="2.17"` (ver `app/build.gradle.kts`,
   subida 2026-09-23). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
   presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
   de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
@@ -453,9 +484,14 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
 - `WalletNotificationNotifier.kt` — notificación del sistema (top deslizable) + `fullScreenIntent`
   (solo para pagos, si "Pantalla completa" está activado).
 - `WalletOverlay.kt` — el aviso flotante ("Pantalla de aviso"), vistas nativas de Android
-  (no Compose). Botones Repetir (azul/blanco) y OK (amarillo/rojo).
+  (no Compose). Botones Repetir (azul/blanco) y OK (amarillo/rojo). Desde v2.17: el encabezado
+  "Pago recibido: X" y el monto solo se muestran si `item.kind == PAYMENT`; para
+  `NotificationKind.ALERT` (`/notificarpantalla`) solo se ve el nombre + el mensaje, sin monto
+  inventado.
 - `PaymentAlertActivity.kt` — pantalla completa de pago (cuando "Pantalla completa" está ON).
-  Mismos colores de botones que el overlay.
+  Mismos colores de botones que el overlay. Desde v2.17: recibe `EXTRA_KIND` en el Intent — con
+  `PAYMENT` muestra "Pago recibido: X" + monto; con cualquier otro kind (`ALERT` de
+  `/notificarpantalla`) solo el nombre + mensaje.
 - `WalletConfig.kt` / `AppConfig.kt` — registros de billeteras y "aplicaciones generales"
   respectivamente (mismo patrón, `SharedPreferences` con formato `nombre|paquete|enabled`).
   **`detect()` corregido (Paso 1, 2026-09-23):** recibe `packageName`, `title`, `text` por
@@ -481,12 +517,14 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
   `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (con `timeoutSeconds`
   opcional desde v2.16 para long-polling real — conexión abierta hasta que llega un mensaje o
   se agota el tiempo). Todo con `HttpURLConnection` + `org.json`.
-- `TelegramCommandHandler.kt` (nuevo v2.16) — lógica de `/help`, `/notificar`, `/renombrar`
-  extraída de `TelegramSyncWorker` a un objeto compartido (recibe `context` explícito), usado
-  tanto por el long-polling en tiempo real (`WalletNotificationListener`) como por el respaldo
-  periódico (`TelegramSyncWorker`). Si `/notificar`/`/renombrar` no calzan con el patrón
-  completo (ej. el usuario mandó el comando y el mensaje en dos envíos separados de Telegram),
-  responde con la sintaxis correcta y un ejemplo en vez de quedarse callado.
+- `TelegramCommandHandler.kt` (nuevo v2.16, ampliado v2.17) — lógica de `/help`, `/notificar`
+  (solo audio), `/notificarpantalla` (audio + pantalla, `NotificationKind.ALERT`), `/renombrar`
+  — objeto compartido (recibe `context` explícito), usado tanto por el long-polling en tiempo
+  real (`WalletNotificationListener`) como por el respaldo periódico (`TelegramSyncWorker`). Si
+  un comando no calza con el patrón completo (ej. el usuario mandó el comando y el mensaje en
+  dos envíos separados de Telegram), responde con la sintaxis correcta y un ejemplo en vez de
+  quedarse callado. Los prefijos usan límite de palabra (`^/notificar\b`) para no confundir
+  `/notificar` con `/notificarpantalla`.
 - `TelegramConfig.kt` — guarda token del bot / chat id en `SharedPreferences`.
   **Rediseño Paso 3 (2026-09-23, un solo bot para todas las sucursales, decisión del usuario):**
   se cambió `lastUpdateId` (un offset que se le confirmaba a Telegram) por
