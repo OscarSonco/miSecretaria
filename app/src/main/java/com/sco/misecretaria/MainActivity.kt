@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
 import com.sco.misecretaria.ui.theme.AccentBlue
+import com.sco.misecretaria.ui.theme.AccentGreen
 import com.sco.misecretaria.ui.theme.ScoSecretariaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -125,13 +126,13 @@ private fun copyToClipboard(context: Context, text: String) {
     android.widget.Toast.makeText(context, context.getString(R.string.toast_copied), android.widget.Toast.LENGTH_SHORT).show()
 }
 
-private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP }
+private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP, TRASH }
 
 @Composable private fun ScoSecretariaApp(activity: MainActivity) {
     var screen by remember { mutableStateOf(Screen.HOME) }
     var adminUnlocked by remember { mutableStateOf(false) }
     when (screen) {
-        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, onAdminUnlocked = { adminUnlocked = true })
+        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, openTrash = { screen = Screen.TRASH }, onAdminUnlocked = { adminUnlocked = true })
         Screen.SETTINGS -> SettingsScreen(
             onBack = { screen = Screen.HOME },
             activity = activity,
@@ -142,6 +143,15 @@ private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP }
         Screen.READ -> ReadScreen({ screen = Screen.HOME })
         Screen.PICK_WALLET -> InstalledAppsScreen(target = PickerTarget.WALLET, onDone = { screen = Screen.SETTINGS })
         Screen.PICK_APP -> InstalledAppsScreen(target = PickerTarget.APP, onDone = { screen = Screen.SETTINGS })
+        Screen.TRASH -> TrashScreen(onBack = { screen = Screen.HOME })
+    }
+}
+
+/** Botón "Volver" — verde con texto blanco (pedido explícito del usuario, 2026-09-24), usado
+ * en todas las pantallas secundarias en vez del TextButton plano de antes. */
+@Composable private fun BackButton(onClick: () -> Unit) {
+    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = AccentGreen, contentColor = Color.White)) {
+        Text(stringResource(R.string.action_back))
     }
 }
 
@@ -161,7 +171,7 @@ enum class PickerTarget { WALLET, APP }
     }
     BackHandler(onBack = onDone)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onDone) { Text(stringResource(R.string.action_back)) }; Text(stringResource(if (target == PickerTarget.WALLET) R.string.picker_title_wallet else R.string.picker_title_app), style = MaterialTheme.typography.headlineSmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onDone); Text(stringResource(if (target == PickerTarget.WALLET) R.string.picker_title_wallet else R.string.picker_title_app), style = MaterialTheme.typography.headlineSmall) }
         OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.label_search)) }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         if (loading) Text(stringResource(R.string.installed_apps_loading))
@@ -185,10 +195,11 @@ enum class PickerTarget { WALLET, APP }
     } }
 }
 
-@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, onAdminUnlocked: () -> Unit) {
+@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, openTrash: () -> Unit, onAdminUnlocked: () -> Unit) {
     val context = LocalContext.current
     var history by remember { mutableStateOf(WalletNotificationStore.history()) }
     var pinnedIds by remember { mutableStateOf(WalletNotificationStore.pinnedIds()) }
+    var trashCount by remember { mutableStateOf(WalletNotificationStore.trash().size) }
     var serviceOn by remember { mutableStateOf(DisplayPreferences.serviceEnabled(context)) }
     var filter by remember { mutableStateOf<String?>(null) }
     var serviceAlive by remember { mutableStateOf(true) }
@@ -209,6 +220,7 @@ enum class PickerTarget { WALLET, APP }
         WalletNotificationListener.requestServiceRebind(context)
         while (true) {
             history = WalletNotificationStore.history()
+            trashCount = WalletNotificationStore.trash().size
             val hb = DisplayPreferences.heartbeat(context)
             serviceAlive = hb != 0L && (System.currentTimeMillis() - hb) < 6 * 60 * 60 * 1000L
             delay(700)
@@ -264,6 +276,7 @@ enum class PickerTarget { WALLET, APP }
             if (history.isNotEmpty()) {
                 TextButton(onClick = { showClearAllConfirm = true }) { Text(stringResource(R.string.action_clear_history)) }
             }
+            TextButton(onClick = openTrash) { Text(stringResource(R.string.action_trash, trashCount)) }
         }
         if (sources.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
@@ -301,9 +314,10 @@ enum class PickerTarget { WALLET, APP }
                     if (!selectionMode) {
                         TextButton(onClick = { editingNoteId = item.id; draftNote = item.note.orEmpty() }) { Text(stringResource(R.string.action_add_note)) }
                         TextButton(onClick = {
-                            WalletNotificationStore.remove(item.id)
+                            WalletNotificationStore.moveToTrash(item.id)
                             history = WalletNotificationStore.history()
                             pinnedIds = WalletNotificationStore.pinnedIds()
+                            trashCount = WalletNotificationStore.trash().size
                         }) { Text(stringResource(R.string.action_delete)) }
                     }
                 }
@@ -364,9 +378,10 @@ enum class PickerTarget { WALLET, APP }
             text = { Text(stringResource(R.string.confirm_delete_body)) },
             confirmButton = {
                 TextButton(onClick = {
-                    WalletNotificationStore.removeAll(selectedIds)
+                    WalletNotificationStore.moveManyToTrash(selectedIds)
                     history = WalletNotificationStore.history()
                     pinnedIds = WalletNotificationStore.pinnedIds()
+                    trashCount = WalletNotificationStore.trash().size
                     selectedIds = emptySet()
                     selectionMode = false
                     showDeleteSelectedConfirm = false
@@ -382,15 +397,84 @@ enum class PickerTarget { WALLET, APP }
             text = { Text(stringResource(R.string.confirm_clear_history_body, history.size)) },
             confirmButton = {
                 TextButton(onClick = {
-                    WalletNotificationStore.clearHistory()
+                    WalletNotificationStore.moveAllToTrash()
                     history = WalletNotificationStore.history()
                     pinnedIds = WalletNotificationStore.pinnedIds()
+                    trashCount = WalletNotificationStore.trash().size
                     selectedIds = emptySet()
                     selectionMode = false
                     showClearAllConfirm = false
                 }) { Text(stringResource(R.string.action_clear_history)) }
             },
             dismissButton = { TextButton(onClick = { showClearAllConfirm = false }) { Text(stringResource(R.string.action_cancel)) } }
+        )
+    }
+}
+
+@Composable private fun TrashScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var trash by remember { mutableStateOf(WalletNotificationStore.trash()) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showEmptyConfirm by remember { mutableStateOf(false) }
+    BackHandler(onBack = onBack)
+    Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onBack); Text(stringResource(R.string.trash_title), style = MaterialTheme.typography.headlineSmall) }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (trash.isNotEmpty()) {
+                TextButton(onClick = { selectionMode = !selectionMode; selectedIds = emptySet() }) { Text(stringResource(if (selectionMode) R.string.action_select_done else R.string.action_select)) }
+                if (selectionMode && selectedIds.isNotEmpty()) {
+                    TextButton(onClick = {
+                        WalletNotificationStore.restoreMany(selectedIds)
+                        trash = WalletNotificationStore.trash()
+                        selectedIds = emptySet()
+                        selectionMode = false
+                    }) { Text(stringResource(R.string.action_restore_selected, selectedIds.size)) }
+                }
+                if (!selectionMode) {
+                    TextButton(onClick = { WalletNotificationStore.restoreEverything(); trash = WalletNotificationStore.trash() }) { Text(stringResource(R.string.action_restore_all)) }
+                    TextButton(onClick = { showEmptyConfirm = true }) { Text(stringResource(R.string.action_empty_trash)) }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (trash.isEmpty()) {
+            Text(stringResource(R.string.trash_empty_message), style = MaterialTheme.typography.bodyMedium)
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(trash, key = { it.id }) { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (selectionMode) Checkbox(checked = item.id in selectedIds, onCheckedChange = { checked ->
+                    selectedIds = if (checked) selectedIds + item.id else selectedIds - item.id
+                })
+                Column(Modifier.weight(1f)) {
+                    Text("${item.wallet} · ${item.receivedAt}")
+                    Text(item.message)
+                }
+            }
+            if (!selectionMode) {
+                TextButton(onClick = {
+                    WalletNotificationStore.restore(item.id)
+                    trash = WalletNotificationStore.trash()
+                }) { Text(stringResource(R.string.action_restore)) }
+            }
+        } } } }
+    } }
+    if (showEmptyConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEmptyConfirm = false },
+            title = { Text(stringResource(R.string.confirm_empty_trash_title)) },
+            text = { Text(stringResource(R.string.confirm_empty_trash_body, trash.size)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    WalletNotificationStore.emptyTrash()
+                    trash = WalletNotificationStore.trash()
+                    selectedIds = emptySet()
+                    selectionMode = false
+                    showEmptyConfirm = false
+                }) { Text(stringResource(R.string.action_empty_trash)) }
+            },
+            dismissButton = { TextButton(onClick = { showEmptyConfirm = false }) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
 }
@@ -402,7 +486,7 @@ enum class PickerTarget { WALLET, APP }
     var isPaused by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }; Text(stringResource(R.string.action_read), style = MaterialTheme.typography.headlineSmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onBack); Text(stringResource(R.string.action_read), style = MaterialTheme.typography.headlineSmall) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             VoiceProfile.entries.forEach { profile ->
                 FilterChip(selected = voiceProfile == profile, onClick = { voiceProfile = profile; DisplayPreferences.setVoiceProfile(context, profile) }, label = { Text(profile.label) })
@@ -441,9 +525,10 @@ enum class PickerTarget { WALLET, APP }
     var tgInterval by remember { mutableStateOf(TelegramConfig.intervalMinutes(context).toString()) }
     var tgStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val blue = ButtonDefaults.buttonColors(containerColor = AccentBlue)
     BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }; Text(stringResource(R.string.action_settings), style = MaterialTheme.typography.headlineSmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onBack); Text(stringResource(R.string.action_settings), style = MaterialTheme.typography.headlineSmall) }
         PermissionRow(stringResource(R.string.perm_notifications), isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         PermissionRow(stringResource(R.string.perm_overlay), Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
         PermissionRow(stringResource(R.string.perm_media), WhatsAppMediaScanner.hasMediaPermission(context)) { activity.requestMediaPermissions() }
@@ -453,7 +538,7 @@ enum class PickerTarget { WALLET, APP }
             Button(onClick = {
                 checkingUpdate = true; updateChecked = false
                 scope.launch { updateInfo = UpdateManager.checkForUpdate(); checkingUpdate = false; updateChecked = true }
-            }, enabled = !checkingUpdate) { Text(stringResource(if (checkingUpdate) R.string.checking_update else R.string.action_check_update)) }
+            }, enabled = !checkingUpdate, colors = blue) { Text(stringResource(if (checkingUpdate) R.string.checking_update else R.string.action_check_update)) }
         }
         if (updateChecked) {
             val info = updateInfo
@@ -470,7 +555,7 @@ enum class PickerTarget { WALLET, APP }
                         } else {
                             UpdateManager.downloadAndInstall(context, info)
                         }
-                    }) { Text(stringResource(R.string.action_update_now)) }
+                    }, colors = blue) { Text(stringResource(R.string.action_update_now)) }
                 } }
             }
         }
@@ -492,13 +577,12 @@ enum class PickerTarget { WALLET, APP }
         Slider(value = speechRate, onValueChange = { speechRate = it; DisplayPreferences.setSpeechRateMultiplier(context, it) }, valueRange = 0.5f..2.0f, steps = 14)
         TextButton(onClick = { runCatching { context.startActivity(Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) } }) { Text(stringResource(R.string.action_install_voices)) }
         Spacer(Modifier.height(8.dp))
-        val blue = ButtonDefaults.buttonColors(containerColor = AccentBlue)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }, colors = blue) { Text(stringResource(R.string.action_share_history)) }
             Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }, colors = blue) { Text(stringResource(R.string.action_share_csv)) }
         }
         Button(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }, colors = blue) { Text(stringResource(R.string.action_share_log)) }
-        Button(onClick = { activity.shareApk() }) { Text(stringResource(R.string.action_share_apk)) }
+        Button(onClick = { activity.shareApk() }, colors = blue) { Text(stringResource(R.string.action_share_apk)) }
         Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.backup_section_title), style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -516,7 +600,7 @@ enum class PickerTarget { WALLET, APP }
                 TextButton(onClick = { WalletConfig.remove(context, r.name); rules = WalletConfig.rules(context) }) { Text(stringResource(R.string.action_remove)) }
             }
         } }
-        Button(onClick = onPickWallet) { Text(stringResource(R.string.action_add_wallet)) }
+        Button(onClick = onPickWallet, colors = blue) { Text(stringResource(R.string.action_add_wallet)) }
         Spacer(Modifier.height(20.dp))
         Text(stringResource(R.string.apps_section_title), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.apps_section_hint), style = MaterialTheme.typography.bodySmall)
@@ -530,7 +614,7 @@ enum class PickerTarget { WALLET, APP }
                 TextButton(onClick = { AppConfig.remove(context, r.name); appRules = AppConfig.rules(context) }) { Text(stringResource(R.string.action_remove)) }
             }
         } }
-        Button(onClick = onPickApp) { Text(stringResource(R.string.action_add_app)) }
+        Button(onClick = onPickApp, colors = blue) { Text(stringResource(R.string.action_add_app)) }
         Spacer(Modifier.height(20.dp))
         Text(stringResource(R.string.telegram_section_title), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.telegram_section_hint), style = MaterialTheme.typography.bodySmall)
@@ -552,7 +636,7 @@ enum class PickerTarget { WALLET, APP }
                 TelegramConfig.setIntervalMinutes(context, tgInterval.toLongOrNull() ?: 30L)
                 if (TelegramConfig.isConfigured(context)) TelegramSyncWorker.schedule(context) else TelegramSyncWorker.cancel(context)
                 tgStatus = context.getString(R.string.telegram_status_saved)
-            }) { Text(stringResource(R.string.action_save_activate)) }
+            }, colors = blue) { Text(stringResource(R.string.action_save_activate)) }
             OutlinedButton(onClick = {
                 tgStatus = context.getString(R.string.telegram_status_sending)
                 scope.launch {

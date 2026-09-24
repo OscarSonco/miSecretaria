@@ -12,3 +12,6 @@ val Pink40 = Color(0xFF7D5260)
 
 /** Azul de acento para botones principales (Configuración, Leer, Compartir). */
 val AccentBlue = Color(0xFF1565C0)
+
+/** Verde de acento para el botón "Volver". */
+val AccentGreen = Color(0xFF188038)

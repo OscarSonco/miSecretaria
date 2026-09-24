@@ -16,3 +16,9 @@ local.properties
 /Releases
 /.firebase
 /secrets.properties
+/miSecretaria.db
+/miSecretaria.log*
+/Archivo
+*.tar.gz
+__pycache__/
+*.pyc

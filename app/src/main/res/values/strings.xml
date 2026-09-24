@@ -20,11 +20,22 @@
     <string name="note_field_label">Escribe una nota para esta notificación</string>
     <string name="action_save_note">Guardar nota</string>
 
-    <!-- Diálogos de confirmación de borrado -->
+    <!-- Diálogos de confirmación de borrado (ahora mueven a la Papelera, no borran de una vez) -->
     <string name="confirm_delete_selected_title">¿Eliminar %1$d notificación(es)?</string>
-    <string name="confirm_delete_body">Esta acción no se puede deshacer.</string>
+    <string name="confirm_delete_body">Se moverán a la Papelera — podrás restaurarlas desde ahí.</string>
     <string name="confirm_clear_history_title">¿Vaciar todo el historial?</string>
-    <string name="confirm_clear_history_body">Se borrarán las %1$d notificaciones guardadas. Esta acción no se puede deshacer.</string>
+    <string name="confirm_clear_history_body">Se moverán las %1$d notificaciones guardadas a la Papelera — podrás restaurarlas desde ahí.</string>
+
+    <!-- Papelera -->
+    <string name="action_trash">🗑️ Papelera (%1$d)</string>
+    <string name="trash_title">Papelera</string>
+    <string name="trash_empty_message">La papelera está vacía.</string>
+    <string name="action_restore">♻️ Restaurar</string>
+    <string name="action_restore_selected">Restaurar seleccionadas (%1$d)</string>
+    <string name="action_restore_all">Restaurar todas</string>
+    <string name="action_empty_trash">Vaciar papelera</string>
+    <string name="confirm_empty_trash_title">¿Vaciar la papelera?</string>
+    <string name="confirm_empty_trash_body">Se eliminarán permanentemente %1$d notificación(es) de la papelera. Esta acción no se puede deshacer.</string>
 
     <!-- Compartir / Toasts generales -->
     <string name="share_chooser_title">Compartir %1$s</string>

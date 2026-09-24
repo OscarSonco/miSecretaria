@@ -15,6 +15,7 @@ object WalletNotificationStore {
     private const val HISTORY = "history"
     private const val SEEN = "seen"
     private const val PINNED = "pinned"
+    private const val TRASH = "trash"
     const val MAX_PINNED = 2
     private lateinit var context: Context
 
@@ -62,25 +63,46 @@ object WalletNotificationStore {
         save(PENDING, pending().map { if (it.id == id) it.copy(note = trimmed) else it })
     }
 
+    /** Papelera: "eliminar" desde el Historial no borra de verdad — mueve a esta lista, de
+     * donde se puede restaurar o vaciar (borrado permanente) más tarde. */
     @Synchronized
-    fun remove(id: String) {
-        save(HISTORY, history().filterNot { it.id == id })
-        save(PENDING, pending().filterNot { it.id == id })
-        savePinned(pinnedIds() - id)
-    }
+    fun trash(): List<WalletNotification> = load(TRASH)
 
     @Synchronized
-    fun removeAll(ids: Set<String>) {
+    fun moveToTrash(id: String) = moveManyToTrash(setOf(id))
+
+    @Synchronized
+    fun moveManyToTrash(ids: Set<String>) {
         if (ids.isEmpty()) return
+        val movidos = history().filter { it.id in ids }
+        if (movidos.isEmpty()) return
         save(HISTORY, history().filterNot { it.id in ids })
         save(PENDING, pending().filterNot { it.id in ids })
         savePinned(pinnedIds() - ids)
+        save(TRASH, trash() + movidos)
     }
 
     @Synchronized
-    fun clearHistory() {
-        save(HISTORY, emptyList())
-        savePinned(emptySet())
+    fun moveAllToTrash() = moveManyToTrash(history().map { it.id }.toSet())
+
+    @Synchronized
+    fun restore(id: String) = restoreMany(setOf(id))
+
+    @Synchronized
+    fun restoreMany(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val recuperados = trash().filter { it.id in ids }
+        if (recuperados.isEmpty()) return
+        save(TRASH, trash().filterNot { it.id in ids })
+        save(HISTORY, (history() + recuperados).sortedByDescending { it.receivedAt })
+    }
+
+    @Synchronized
+    fun restoreEverything() = restoreMany(trash().map { it.id }.toSet())
+
+    @Synchronized
+    fun emptyTrash() {
+        save(TRASH, emptyList())
     }
 
     /** Notificaciones fijadas por el usuario (máximo [MAX_PINNED]) — siempre se muestran

@@ -4,9 +4,17 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-24)
 
-Código en disco = v2.19 (`versionCode=2019`) — el usuario ya publicó e instaló hasta 2.17;
-2.18 y 2.19 son fixes/features sin publicar todavía (build Interna de 2.19 ya generada). Reglas
-de trabajo con el usuario:
+Código en disco = v2.20 (`versionCode=2020`) — el usuario publicó hasta 2.19 (`gh release list`
+confirma `v2.19` como "Latest" en ese momento); **2.20 (Papelera + colores + botón Volver) fue
+compilada y con build Interna generada, pero AÚN NO publicada** — falta que el usuario corra
+`release.sh`/el `.desktop` cuando quiera cerrarla. **Importante:** la tanda v2.19 completa
+(borrar/fijar/copiar/nota + centralización de textos) salió a producción SIN haberse probado en
+vivo — la próxima sesión debe priorizar confirmar con el usuario que se ve/funciona bien en el
+teléfono real, no asumir que "recién compilado" significa "sin probar aún" como en tandas
+anteriores. Lo mismo aplica ahora a 2.20, que además cambia el comportamiento de "eliminar" en
+el Historial (ya no borra, mueve a Papelera) — vale la pena que el usuario confirme que
+entiende el cambio de comportamiento antes de repartirla a las sucursales. Reglas de trabajo
+con el usuario:
 - ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
   interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
   siempre por su cuenta, vía "Buscar actualización" en la app.
@@ -21,6 +29,106 @@ de trabajo con el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.20 (2026-09-24) — Papelera de notificaciones + colores de Configuración + botón Volver
+
+Pedido explícito del usuario: (1) que "eliminar" en el Historial NO borre de una vez, sino que
+mande a una Papelera desde la que se pueda restaurar 1/varias/todas, o vaciarla; (2) los
+botones de Configuración que salían café (sin el `AccentBlue` de tandas anteriores) pasan a
+azul; (3) el botón "Volver" pasa a verde con letra blanca.
+
+- ✅ **Papelera** (`WalletNotificationStore.kt`): se reemplazaron los antiguos `remove`/
+  `removeAll`/`clearHistory` (borrado permanente, sin confirmación real de recuperación) por
+  `moveToTrash`/`moveManyToTrash`/`moveAllToTrash` (mueven de `HISTORY` a una lista nueva
+  `TRASH` en `SharedPreferences`, limpiando también `PENDING`/`PINNED` igual que antes) y
+  `trash()`/`restore()`/`restoreMany()`/`restoreEverything()`/`emptyTrash()` para el camino de
+  vuelta. `restore*` reinserta en `HISTORY` y reordena por `receivedAt` (no simplemente
+  antepone, para no adelantar una notificación vieja restaurada por delante de otras más
+  nuevas). **Nueva pantalla `TrashScreen`** en `MainActivity.kt` (accesible desde un botón
+  "🗑️ Papelera (n)" en Home, junto a "Vaciar historial"): mismo patrón de selección múltiple
+  que el Historial (casillas + "Restaurar seleccionadas"), más "Restaurar todas" y "Vaciar
+  papelera" (esta última SÍ con confirmación, porque ahí sí es borrado permanente). Los textos
+  de los diálogos de confirmación de "Eliminar seleccionadas"/"Vaciar historial" se
+  reescribieron para decir "se moverán a la Papelera" en vez de "no se puede deshacer" (porque
+  ya no es cierto — ahora sí se puede deshacer, restaurando).
+- ✅ **Botones café → azul en Configuración**: se detectaron los `Button()` de
+  `SettingsScreen` que NO tenían `colors = blue` (quedaban con el color por defecto de Material
+  You, café/crema según el fondo del usuario — mismo problema ya resuelto para otros botones en
+  v2.13): "Buscar actualización"/"Buscando...", "Actualizar ahora", "Compartir Aplicación",
+  "Agregar Billetera", "Agregar Aplicación", "Guardar y activar". La variable `val blue =
+  ButtonDefaults.buttonColors(containerColor = AccentBlue)` se subió al principio de
+  `SettingsScreen` (antes se declaraba a mitad de la función, después de los botones que la
+  necesitaban antes) para poder reusarla en todos.
+- ✅ **Botón "Volver" → verde con texto blanco**: nuevo composable `BackButton()` en
+  `MainActivity.kt` (`Button` con `AccentGreen` de fondo y `Color.White` de texto), reemplaza el
+  `TextButton` plano que había en `InstalledAppsScreen`, `ReadScreen` y `SettingsScreen` (y se
+  usa también en la nueva `TrashScreen`). `AccentGreen = Color(0xFF188038)` nuevo en
+  `ui/theme/Color.kt` (mismo verde que ya se usaba suelto para "Activado"/estado del servicio,
+  ahora con nombre).
+- **Sin probar en el teléfono todavía** — toda esta tanda es nueva. Compila limpio, versión
+  subida a `versionCode=2020`/`"2.20"`, build Interna generada
+  (`Releases/miSecretariaV2.20-debug_Interna.apk`).
+
+### Colector de CSV a `miSecretaria.db` (2026-09-24, fuera de la app Android)
+
+Pedido del usuario: acumular en una base de datos local, dentro de la carpeta del proyecto, los
+CSV que cada sucursal manda por Telegram (ver `TelegramSyncWorker.sendPendingCsv`) — hoy esos
+CSV solo se ven sueltos en el chat de Telegram del usuario, sin quedar juntos en ningún lado.
+
+- **Por qué no se reutiliza el mecanismo de comandos (`getUpdates`) para esto:** los CSV los
+  manda el propio bot (`sendDocument`) al chat del usuario — son mensajes SALIENTES del bot, y
+  `getUpdates` de la API de bots solo entrega mensajes ENTRANTES (lo que el usuario le escribe
+  al bot). Por diseño de Telegram, un bot no puede "leerse a sí mismo" los archivos que ya
+  envió. Se evaluaron 4 alternativas (Telethon con la cuenta personal, Firestore como
+  intermediario, un receptor HTTP propio con túnel, y Telegram Desktop con descarga automática
+  + carpeta vigilada) — el usuario eligió la última (**Opción C**) porque ya tenía **Telegram
+  Desktop 7.2.9** corriendo en este Debian (`/home/beelinkser5max/Telegram/Telegram`, sesión
+  propia) y confirmado que YA descarga solo los CSV a
+  `~/Descargas/Telegram Desktop/` — no hizo falta configurar nada de Telegram, solo escribir el
+  importador.
+- ✅ **`csv_importer.py`** (nuevo, en la raíz del proyecto, fuera de `app/` — es una herramienta
+  de escritorio, no parte de la app Android): vigila `~/Descargas/Telegram Desktop/` cada 30s,
+  valida que el encabezado del CSV sea exactamente `Sucursal,Fecha,Origen,Tipo,Mensaje` (para no
+  tragarse por error un CSV de otro chat que caiga en la misma carpeta de descargas), e inserta
+  cada fila en la tabla `notificaciones` de `miSecretaria.db` (SQLite, en la raíz del proyecto,
+  **no se sube a git** — agregado a `.gitignore`). Cada archivo ya importado se registra en la
+  tabla `archivos_importados` (clave = nombre de archivo) para no duplicar si Telegram lo vuelve
+  a tocar. Sin dependencias nuevas — solo librería estándar de Python (`sqlite3`, `csv`).
+- ✅ **Sin systemd ni cron, a propósito** — mismo criterio que el usuario ya fijó explícitamente
+  para su otro proyecto (`CotizacionDelDolar`, ver su `CLAUDE.md`: *"no quiere auto-arranque ni
+  auto-reinicio de ningún tipo"*). Se inicia a mano con **`miSecretaria_ImportarCSV.desktop`**
+  (doble clic → terminal, mismo patrón que `miSecretaria_Update.desktop`) y se detiene cerrando
+  la ventana o con Ctrl+C. Queda corriendo en primer plano mientras el usuario lo quiera activo.
+- ✅ **Probado en vivo (2026-09-24):** una corrida real importó correctamente las 9 CSV que ya
+  estaban en la carpeta de descargas → 23 filas reales en `notificaciones` (pagos y mensajes de
+  "Localizador"/WhatsApp de la sucursal `OSC_TecnoPovaNeo2`). Confirmado con
+  `sqlite3 miSecretaria.db "SELECT ..."`.
+- ✅ **`miSecretaria.log` (2026-09-24):** logging real vía el módulo `logging` de Python (no
+  `print()`) — `RotatingFileHandler` en modo `DEBUG` (2 MB × 3 respaldos, no crece sin límite,
+  a diferencia de `miSecretaria.db`). En `.gitignore` (`/miSecretaria.log*`, cubre también las
+  rotaciones `.log.1`/`.log.2`/`.log.3`).
+- ✅ **Panel en vivo con `rich` (2026-09-24, pedido explícito del usuario: "más estético, más
+  pro, con métricas en tiempo real"):** la consola ya no es texto que va scrolleando — es un
+  panel (`rich.live.Live`, se redibuja en el mismo lugar) con: rutas vigiladas, cuenta regresiva
+  hasta la próxima revisión, contadores en vivo (archivos importados, filas importadas, último
+  archivo, errores, tiempo en marcha) y una sub-caja "Últimos eventos" con las últimas 8 líneas.
+  Dependencia nueva: `rich` (ya estaba instalada globalmente en esta máquina, `pip3 list` la
+  confirma; se agregó `requirements.txt` con `rich` para que quede documentada). **Garantía
+  importante:** el panel de eventos se alimenta de un `logging.Handler` (`PanelHandler`) que
+  recibe EXACTAMENTE los mismos registros que ya van al archivo — no hay un texto "solo en
+  pantalla" que no haya pasado por `miSecretaria.log`; la única diferencia es de nivel (el panel
+  filtra a INFO+, el archivo se queda con todo, incluido DEBUG). Los mensajes de inicio con
+  rutas completas se bajaron a DEBUG a propósito porque rompían el ancho fijo del panel de
+  eventos (quedan en el archivo igual, solo no se ven en pantalla — la tabla de métricas ya
+  muestra esas rutas de forma resumida). Probado en una pseudo-terminal real (`script`): el
+  panel se ve limpio, sin envolver líneas, con colores (verde=INFO, amarillo=WARNING,
+  rojo=ERROR).
+- **Pendiente/decisiones futuras, no resueltas todavía:** (1) `miSecretaria.db` no tiene límite
+  de crecimiento ni purga — igual que `CotizacionDelDolar.db`, se deja así a propósito salvo que
+  el usuario pida lo contrario; (2) no hay backup automático de esta base (ver el patrón
+  `sqlite3 ".backup"` de `CotizacionDelDolar/Backup_Proyecto.sh` si se quiere algo similar más
+  adelante); (3) no se filtra ni deduplica por contenido, solo por nombre de archivo — si algún
+  día una sucursal reenvía manualmente un CSV viejo con otro nombre, se importaría de nuevo.
 
 ### Tanda v2.19 (2026-09-24) — textos centralizados (renombrado seguro) + gestión de historial (borrar/fijar/copiar/nota)
 
@@ -491,13 +599,14 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2019`, `versionName="2.19"` (ver `app/build.gradle.kts`,
-  subida 2026-09-24). Compila limpio en el Debian. **Aún no publicada** — falta que el usuario
-  presione `miSecretaria_Update.desktop` (o corra `./release.sh`) cuando quiera cerrarla. Antes
-  de publicar, probar en el teléfono lo que quedó pendiente de verificar en vivo: permiso de
-  medios + detección real de foto/audio/video de WhatsApp (Paso 2), guardar/probar el bot de
-  Telegram en Configuración (Paso 3), y toda la tanda v2.19 (borrar/fijar/copiar/nota +
-  centralización de textos, ver esa sección — nada de eso se ha visto en el teléfono todavía).
+- **Versión actual:** `versionCode=2020`, `versionName="2.20"` (ver `app/build.gradle.kts`,
+  subida 2026-09-24). Compila limpio en el Debian, build Interna generada. **NO publicada
+  todavía** — la v2.19 sigue siendo la última publicada (`gh release list`/`update.json`).
+  **Pendiente de verificar en vivo:** permiso de medios + detección real de foto/audio/video de
+  WhatsApp (Paso 2), guardar/probar el bot de Telegram en Configuración (Paso 3), toda la tanda
+  v2.19 (borrar/fijar/copiar/nota + centralización de textos — ya en producción, sin probar) y
+  toda la tanda v2.20 (Papelera, colores de Configuración, botón Volver verde — sin publicar,
+  sin probar).
 - **Esquema de versionCode:** `major*1000 + minor` (ej. 2.1 → 2001, 2.700 → 2700), para poder
   hacer muchos builds de prueba (2.1, 2.2, ... 2.700) antes de saltar a la siguiente versión
   entera (3.0) cuando quede estable.
@@ -544,6 +653,121 @@ Genera `Releases/miSecretariaV(x.x)-debug_Interna.apk`. **Nunca lo suba release.
 GitHub** — se pasa a mano (USB/Bluetooth) a los teléfonos de sucursal. Ver detalle técnico en
 la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
 
+## Dashboard web de `miSecretaria.db` (`web_server.py`, 2026-09-24)
+
+Pedido explícito del usuario: poder ver localmente lo que hay en `miSecretaria.db` desde un
+`miSecretaria.html`, y que ese "servidor" se pueda encender/apagar con un comando de Telegram
+(no a mano en la PC).
+
+- ✅ **`web_server.py`** (nuevo, raíz del proyecto) — Flask, puerto **8766** (el 8765 ya lo usa
+  `CotizacionDelDolar/web_server.py` en esta misma máquina — puertos distintos para no
+  chocar). Una sola ruta `/`, abre `miSecretaria.db` en modo **`?mode=ro`** (nunca escribe —
+  mismo patrón, y mismo motivo, que el `web_server.py` de `CotizacionDelDolar`: puede correr al
+  mismo tiempo que `csv_importer.py` sin arriesgar bloquear/corromper la base). Muestra tarjetas
+  con el total y el desglose por sucursal, y una tabla con las últimas 200 notificaciones.
+- ✅ **`templates/miSecretaria.html`** (nuevo) — la plantilla Jinja2 que pidió el usuario por su
+  nombre exacto. Diseño propio (no Bootstrap/CDN — todo el CSS es inline, cero dependencias
+  externas): tarjetas de métricas en azul (`AccentBlue`, para que combine con la app) y una
+  tabla con scroll propio. Colores por tipo: `PAYMENT` en verde, `ALERT` en rojo.
+- ✅ **Control por Telegram (`/panelon`, `/paneloff`)** — vive DENTRO de `csv_importer.py`, no
+  en un script aparte: como `web_server.py` no puede escucharse a sí mismo para "encenderse"
+  (si está apagado no hay nada corriendo que reciba el comando), el que escucha tiene que ser un
+  proceso que YA esté siempre corriendo — y ese es `csv_importer.py`. Cada 10s (aparte del ciclo
+  de 30s de los CSV) hace su propio `getUpdates(offset=0)` (nunca confirma ante Telegram, igual
+  que hace la app Android) y dedupea localmente contra una tabla nueva en la misma base,
+  `panel_updates_procesados(update_id)` — un dedupe totalmente independiente del que usan los
+  teléfonos (cada uno el suyo), así que no hay riesgo de interferencia. Si el texto no es
+  exactamente `/panelon` o `/paneloff`, se ignora en silencio (igual que la app Android ignora
+  cualquier texto que no matchee sus propios comandos) — **estos dos comandos NO están en el
+  `/help` de la app** a propósito, porque la app no los procesa, son exclusivos de la PC.
+  - `iniciar_servidor_web()`/`detener_servidor_web()`: lanzan/matan `web_server.py` con
+    `subprocess.Popen(..., start_new_session=True)`. **Chequeo de "¿ya está encendido?" por
+    conexión real al puerto 8766** (`socket.connect`), no por PID ni `pgrep` — misma lección ya
+    documentada en `CotizacionDelDolar/CLAUDE.md` ("detectar un proceso con pgrep da falsos
+    positivos"). Si el puerto está ocupado por algo que este script no lanzó, avisa por Telegram
+    en vez de intentar matarlo a ciegas.
+  - Requiere `secrets.properties` (mismo archivo que usa `build_interna.sh`) — si no existe o
+    está vacío, el importador de CSV sigue funcionando igual, solo que `/panelon`/`/paneloff`
+    quedan sin efecto (avisado con un `log.warning` al iniciar).
+  - El panel en vivo de la terminal (`csv_importer.py`) ahora muestra una fila más: "Panel web
+    (/panelon, /paneloff): 🟢 encendido (puerto 8766)" / "🔴 apagado".
+- ✅ **Probado en vivo (2026-09-24):** `web_server.py` corrido a mano, `curl` a
+  `http://127.0.0.1:8766/` devolvió el HTML completo con datos reales (50 notificaciones, 2
+  sucursales). El polling de Telegram dentro de `csv_importer.py` también se probó en vivo (sin
+  disparar `/panelon`/`/paneloff` de verdad, para no mandar un mensaje real sin permiso) — no
+  hubo errores, y quedó una fila en `panel_updates_procesados` confirmando que el dedupe local
+  funciona.
+- ⚠️ **El proceso de `csv_importer.py` que el usuario ya tenía corriendo (desde las 10:51, antes
+  de este cambio) sigue con el código VIEJO en memoria** — Python no recarga en caliente. Para
+  que `/panelon`/`/paneloff` funcionen, el usuario tiene que cerrar esa ventana (Ctrl+C o
+  cerrarla) y volver a abrir `miSecretaria_ImportarCSV.desktop`.
+- Dependencia nueva: `flask` (ya estaba instalada globalmente en esta máquina — la usa
+  `CotizacionDelDolar/web_server.py` — se agregó a `requirements.txt`).
+
+## Backup portable del proyecto (`backup_proyecto.sh`, 2026-09-24)
+
+Pedido explícito del usuario: poder migrar todo el proyecto a otra computadora "como un
+Firefox portable" (código + sesión/credenciales viajando juntos), guardando el resultado
+dentro de `/Archivo` (carpeta que el usuario ya tenía creada en la raíz del proyecto, mismo
+patrón que su otro proyecto `CotizacionDelDolar`).
+
+- ✅ **`backup_proyecto.sh`** (nuevo, raíz del proyecto) + **`miSecretaria_backup.desktop`**
+  (doble clic, `Terminal=true`, mismo estilo que `miSecretaria_Update.desktop`) — empaqueta el
+  proyecto en `Archivo/miSecretaria_Backup_<fecha_hora>.tar.gz`. Adaptado del
+  `Backup_Proyecto.sh` de `CotizacionDelDolar` (mismo patrón: `rsync` con exclusiones + snapshot
+  de SQLite vía `sqlite3 ".backup"` + `tar -czf`), con una diferencia deliberada:
+  - **Incluye `secrets.properties`** (el Token/Chat ID real) y `miSecretaria.db`/
+    `miSecretaria.log*` — es justo la "sesión" que debe viajar con el backup para no tener que
+    reconfigurar nada a mano en la máquina nueva (la analogía de "Firefox portable" que pidió
+    el usuario).
+  - **Excluye `.git`** (a propósito, igual que `CotizacionDelDolar`): el repo ya está en
+    GitHub, así que en la máquina nueva es más simple `git clone` + copiar encima los 3
+    archivos no versionados del backup, que arrastrar los ~150 MB de historial git (que además
+    tiene entradas de `worktrees` con rutas absolutas de ESTA máquina — copiarlas tal cual
+    podría dejar referencias de worktree rotas en la máquina nueva).
+  - Excluye también `.claude` (datos de sesión de Claude Code, no es parte del proyecto),
+    `app/build`/`.gradle` (se regeneran solos al compilar) y `Releases/` (esos APK ya están en
+    GitHub Releases, se regeneran con `build_interna.sh`/`release.sh`).
+  - El propio script imprime, al terminar, los pasos exactos para restaurar en la máquina
+    nueva (incluye el flag `--break-system-packages` para `pip3 install`, necesario en Debian
+    por PEP 668 — mismo detalle que ya resolvió `CotizacionDelDolar`).
+- ✅ **Probado en vivo (2026-09-24):** una corrida real generó
+  `Archivo/miSecretaria_Backup_2026-09-24_10-45-59.tar.gz` (1.3 MB — mucho más liviano que el
+  del otro proyecto porque no hay sesión de WhatsApp/Chromium de por medio). Verificado con
+  `tar -tzf`: contiene `secrets.properties` y `miSecretaria.db`, no contiene nada de `.git`,
+  `.claude`, `app/build` ni `Releases`.
+- Agregado a `.gitignore`: `/Archivo` (backups + el `miSecretaria.png` que el usuario ya tenía
+  ahí a mano) y `*.tar.gz`.
+
+## Colector de CSV a `miSecretaria.db` (herramienta de escritorio, fuera de la app)
+
+Acumula en una base SQLite local todos los CSV que las sucursales mandan por Telegram (ver
+"Colector de CSV a `miSecretaria.db`" más arriba para el porqué de este diseño). No es parte de
+la app Android — vive en la raíz del proyecto, se corre en este Debian.
+
+```bash
+cd ~/Documents/miSecretaria
+python3 csv_importer.py          # corre en primer plano; Ctrl+C para detener
+# o doble clic en miSecretaria_ImportarCSV.desktop
+```
+
+- Requiere que **Telegram Desktop esté abierto con sesión** en esta máquina y que ese chat
+  tenga la descarga automática de archivos activada (ya confirmado que funciona por defecto).
+- Escribe en `miSecretaria.db` (raíz del proyecto, en `.gitignore`, no se sube a git).
+- Log de depuración en `miSecretaria.log` (rotación automática, también en `.gitignore`).
+- Sin systemd/cron a propósito — se inicia y detiene a mano.
+
+## Backup portable del proyecto (uso)
+
+```bash
+cd ~/Documents/miSecretaria
+bash backup_proyecto.sh          # o doble clic en miSecretaria_backup.desktop
+```
+Genera `Archivo/miSecretaria_Backup_<fecha_hora>.tar.gz` (código + `secrets.properties` +
+`miSecretaria.db`/`.log`, sin `.git`/`.claude`/`app/build`/`Releases`). Ver "Backup portable del
+proyecto (`backup_proyecto.sh`, 2026-09-24)" más arriba para el detalle completo y el porqué de
+cada exclusión.
+
 ## Mapa de archivos (app/src/main/java/com/sco/misecretaria/)
 
 - `MainActivity.kt` — UI Compose completa: navegación (Home/Configuración/Leer/selector de
@@ -562,11 +786,20 @@ la sección v2.13 más arriba. Ya generada para 2.13 y 2.14.
   `item.message` al portapapeles vía `copyToClipboard()`, función top-level nueva que usa
   `ClipboardManager`), "📌 Fijar"/"📌 Quitar fijado" (máx. 2, ver `WalletNotificationStore`),
   "📝 Nota" (abre un campo de texto inline para `item.note`, ver `setNote`), y "Eliminar"
-  (borrado inmediato de esa notificación). Arriba del historial hay un botón "Seleccionar" que
-  activa casillas de verificación por tarjeta para borrar varias a la vez
+  (**desde v2.20: ya NO borra de una vez, mueve a la Papelera** —
+  `WalletNotificationStore.moveToTrash`). Arriba del historial hay un botón "Seleccionar" que
+  activa casillas de verificación por tarjeta para mover varias a la Papelera a la vez
   ("Eliminar seleccionadas (n)", con confirmación) y un botón "Vaciar historial" (con
-  confirmación) para borrar todo. Las notificaciones fijadas se reordenan siempre al principio
-  de la lista mostrada (`ordered = pinned + rest`), sin importar el filtro activo.
+  confirmación) que también mueve todo a la Papelera, no lo borra. Un botón nuevo
+  "🗑️ Papelera (n)" junto a esos dos abre `TrashScreen` (nueva, v2.20): desde ahí se restaura
+  1/varias/todas (`restore`/`restoreMany`/`restoreEverything`) o se vacía la papelera de verdad
+  (`emptyTrash`, con confirmación — ese sí es el único borrado permanente que queda en toda la
+  pantalla). Las notificaciones fijadas se reordenan siempre al principio de la lista mostrada
+  (`ordered = pinned + rest`), sin importar el filtro activo. **Desde v2.20:** el botón "Volver"
+  de `InstalledAppsScreen`/`ReadScreen`/`SettingsScreen`/`TrashScreen` usa el composable nuevo
+  `BackButton()` (verde `AccentGreen`, texto blanco) en vez de un `TextButton` plano; los
+  `Button()` de `SettingsScreen` que quedaban con el color café por defecto de Material You ya
+  usan `colors = blue` (`AccentBlue`) igual que el resto.
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,

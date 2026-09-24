@@ -2,16 +2,36 @@
 
 miSecretaria escucha las notificaciones de tu teléfono, detecta pagos de billeteras móviles
 (ZAS, Yasta, Yape, altoke, Bille, Yolo Pago, etc.) y mensajes de apps que elijas (WhatsApp, SMS, etc.),
-los **lee en voz alta**, los guarda en un historial dentro de la app y — si lo configuras —
-te avisa por Telegram y te deja mandar avisos remotos a una o varias sucursales.
+los **lee en voz alta**, los guarda en un historial dentro de la app y — si el administrador lo
+configuró — avisa por Telegram y permite mandar avisos remotos a una o varias sucursales.
+
+Este manual tiene dos partes:
+
+- **[📱 Guía para usuarios de sucursal](#-guía-para-usuarios-de-sucursal)** — instalar la app,
+  permisos, uso diario (Historial, Leer, Configuración básica). Para el personal que usa el
+  teléfono en el día a día.
+- **[🛠️ Guía para el administrador](#️-guía-para-el-administrador)** — configurar el bot de
+  Telegram, repartir la app a varias sucursales (incluida la build "Interna"), publicar
+  actualizaciones, y las herramientas de respaldo. Para quien gestiona todo desde su
+  computadora (dueño del negocio / del bot).
+
+---
+
+# 📱 Guía para usuarios de sucursal
 
 ## Instalación
 
-1. Descarga el APK más reciente (desde el enlace que te compartan, o desde
-   Configuración → "Buscar actualización" si ya tienes una versión instalada).
-2. Ábrelo e instálalo (Android puede pedirte permitir "instalar apps de fuentes
-   desconocidas" la primera vez — es normal, acéptalo).
-3. Al abrir la app por primera vez, otorga los permisos que te pida (ver siguiente sección).
+Hay dos formas de recibir la app — cualquiera de las dos funciona igual para el uso diario:
+
+1. **Un APK que te pasó el administrador** (por USB, Bluetooth, o un enlace) — puede ser el
+   público o la build **"Interna"** (que ya viene con el bot de Telegram configurado de
+   fábrica, sin que tengas que tocar nada). Ábrelo e instálalo.
+2. **Desde Configuración → "Buscar actualización"**, si ya tenías una versión instalada — solo
+   funciona para el APK público (ver [Actualizaciones](#actualizaciones) más abajo).
+
+Android puede pedirte permitir "instalar apps de fuentes desconocidas" la primera vez — es
+normal, acéptalo. Al abrir la app por primera vez, otorga los permisos que te pida (ver
+siguiente sección).
 
 ## Permisos que pide y para qué sirven
 
@@ -52,7 +72,11 @@ notificaciones cuando pasa mucho tiempo sin usarla.
 - **Leer**: pantalla para pegar o escribir cualquier texto y que la app lo lea en voz alta
   (con pausa/reanudar y elección de voz Varón/Mujer).
 
-## Configuración
+El logo de la pantalla principal, si lo tocas 3 veces seguidas, pide un PIN — eso es solo para
+el administrador (ver más abajo); si no lo conoces, simplemente cierra ese diálogo, no afecta
+nada de lo que ya usas.
+
+## Configuración que puedes ajustar tú
 
 ### Billeteras autorizadas / Aplicaciones (General)
 
@@ -77,16 +101,56 @@ bórrala con "Quitar" y vuelve a agregarla desde el selector.
 - **Instalar más voces**: abre el instalador de voces de Google TTS si tu teléfono no trae una
   voz masculina o femenina real en español.
 
-### Telegram (opcional)
+### Compartir
+
+- **Compartir Historial / CSV / Log**: manda el contenido como archivo adjunto por cualquier
+  app (WhatsApp, correo, Bluetooth, etc.), útil para revisar o respaldar fuera del teléfono.
+- **Compartir Aplicación**: comparte el propio instalador (APK) de miSecretaria para que otra
+  persona lo instale sin necesidad de internet — sirve para pasarla a otro teléfono de la
+  misma sucursal, por ejemplo.
+
+## Actualizaciones
+
+Desde Configuración, el botón **"Buscar actualización"** revisa si hay una versión nueva
+publicada y, si la hay, la descarga e instala directamente — no necesitas buscarla a mano.
+**Solo funciona si tu app es la build pública** (la que se instaló desde un enlace de
+"Buscar actualización" o del repositorio). Si tu teléfono tiene la build **"Interna"** (te la
+entregó el administrador ya configurada), las actualizaciones te las pasa él directamente en
+un APK nuevo — este botón no encontrará nada porque son builds distintas.
+
+## Funciones en desarrollo (todavía no completas)
+
+- **Medios nuevos de WhatsApp** (fotos/audio/video que te mandan): la app ya detecta cuándo
+  WhatsApp anuncia un medio nuevo y busca el archivo real, pero por ahora solo lo registra en
+  el log de depuración — todavía no lo reproduce, no guarda copia ni lo reenvía por Telegram.
+- La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real
+  instalada para español (usa "Instalar más voces" en Configuración para revisar qué voces
+  trae tu equipo).
+
+---
+
+# 🛠️ Guía para el administrador
+
+Todo lo de la guía de usuario aplica también a tu teléfono. Esta sección es lo adicional que
+solo tú necesitas: configurar el bot de Telegram, repartir la app a varias sucursales, publicar
+actualizaciones, y las herramientas que corren en tu computadora (no en los teléfonos).
+
+## PIN de administrador
+
+Toca **3 veces seguidas** el logo (junto a "miSecretaria Vx.x" en la pantalla principal) para
+que aparezca el diálogo de PIN. El PIN por defecto es **230985**. Al ingresarlo correctamente,
+el Token y Chat ID de Telegram quedan visibles y editables en Configuración durante esa
+sesión (se vuelve a tapar si cierras y reabres la app). El resto de la Configuración
+(billeteras, voz, avisos, etc.) siempre está disponible, con o sin PIN — el PIN solo protege el
+Token/Chat ID para que el personal de sucursal no pueda verlos ni cambiarlos.
+
+## Configurar el bot de Telegram
 
 Permite que la app te mande por Telegram un CSV periódico con las notificaciones nuevas de
 cada sucursal, y que tú le mandes avisos a una o todas las sucursales desde tu chat. Los
 comandos (`/notificar`, `/renombrar`, `/help`) se procesan casi al instante mientras el
 teléfono tenga el servicio de notificaciones activo — no hace falta esperar ni tocar
 "Sincronizar ahora" para eso (ese botón sigue sirviendo para el CSV y como respaldo).
-
-**El Token y el Chat ID están protegidos con PIN** (ver "PIN de administrador" abajo) — solo tú
-puedes verlos o cambiarlos; el personal de la sucursal ve el campo tapado ("•••• configurado").
 
 1. Habla con **@BotFather** en Telegram, crea un bot nuevo y copia el **Token** que te da
    (una cadena larga con dos puntos en el medio, por ejemplo
@@ -110,29 +174,12 @@ puedes verlos o cambiarlos; el personal de la sucursal ve el campo tapado ("•�
 - Ve a Ajustes del sistema → Batería → miSecretaria → "Sin restricciones". Algunos teléfonos
   (sobre todo Tecno/Infinix/Xiaomi y similares) matan las tareas en segundo plano por defecto.
 - Si mandaste el comando bien pero de todos modos nada pasa, revisa que lo hayas escrito TODO
-  en un solo mensaje (ver advertencia arriba en "Comandos") — es el error más común.
+  en un solo mensaje (ver advertencia abajo en "Comandos") — es el error más común.
 
 **Nota:** si además del comando el bot te contesta con un mensaje de error explicando la
 sintaxis, quiere decir que sí está funcionando — solo el formato del comando estaba mal.
 
-**Varias sucursales, un solo bot — sin escribir el token en cada teléfono, dos formas:**
-
-- **APK "Interna" (recomendado, para quien compila la app):** existe una build especial,
-  `Releases/miSecretariaV(x.x)-debug_Interna.apk`, que ya viene con el Token y Chat ID
-  puestos de fábrica — se instala y ya está lista, sin tocar Configuración. Se genera con
-  `./build_interna.sh` (lee `secrets.properties`, un archivo local que nunca se sube a
-  ningún lado). **Ese APK trae tu token en texto plano — pásalo a mano (USB, Bluetooth) a
-  los teléfonos de tus sucursales, nunca por un canal público** (no es el mismo archivo que
-  se publica en "Buscar actualización", ese siempre viene sin nada pre-rellenado).
-- **Backup/Restauración (alternativa, sirve para cualquier instalación):** en tu teléfono
-  maestro, Configuración → "Guardar Backup" — el archivo `.json` incluye el Token y Chat ID
-  (además de billeteras/apps) — trátalo como una contraseña. En cada sucursal, "Restaurar
-  Backup" con ese archivo. El nombre de sucursal NO se copia, cada teléfono conserva el suyo.
-
-Todas las sucursales mandan su CSV al mismo chat, y puedes avisarles a todas o a una en
-particular (ver comandos abajo).
-
-**Comandos que puedes escribirle al bot desde tu Telegram:**
+### Comandos que puedes escribirle al bot desde tu Telegram
 
 ⚠️ **Muy importante: escribe el comando Y el mensaje juntos, en UN SOLO envío** — no manden
 "/notificar TODOS" y luego, en otro mensaje aparte, el texto. Si lo mandas en dos mensajes
@@ -152,37 +199,97 @@ que ya tengas v2.15+, que sí te responde con la sintaxis correcta si te equivoc
   alfanumérico automático (ej. `MS-7K2F9Q`) y quieres darle un nombre más claro, así se lo
   cambias sin tocar el teléfono. Ejemplo: `/renombrar MS-7K2F9Q Sucursal Centro`
 
-### PIN de administrador
+## Repartir la app a varias sucursales
 
-Toca **3 veces seguidas** el logo (junto a "miSecretaria Vx.x" en la pantalla principal) para
-que aparezca el diálogo de PIN. El PIN por defecto es **230985**. Al ingresarlo correctamente,
-el Token y Chat ID de Telegram quedan visibles y editables en Configuración durante esa
-sesión (se vuelve a tapar si cierras y reabres la app). El resto de la Configuración
-(billeteras, voz, avisos, etc.) siempre está disponible, con o sin PIN.
+Todas las sucursales comparten **un solo bot** (un solo Token) — no se crea un bot por
+sucursal. Hay dos formas de que cada teléfono quede con el Token/Chat ID sin escribirlo a mano
+en cada uno:
 
-### Copia de seguridad
+- **APK "Interna" (recomendado):** una build especial que ya viene con el Token y Chat ID
+  puestos de fábrica — se instala y ya está lista, sin tocar Configuración. Se genera en tu
+  computadora (ver [Generar la build "Interna"](#generar-la-build-interna-apk) abajo) y se
+  reparte a mano (USB, Bluetooth) a los teléfonos de sucursal — **nunca por un canal público**,
+  porque trae tu token en texto plano.
+- **Backup/Restauración (alternativa, sirve para cualquier instalación ya hecha):** en tu
+  teléfono maestro, Configuración → "Guardar Backup" — el archivo `.json` incluye el Token y
+  Chat ID (además de billeteras/apps) — trátalo como una contraseña. En cada sucursal,
+  "Restaurar Backup" con ese archivo. El nombre de sucursal NO se copia, cada teléfono conserva
+  el suyo.
 
-- **Guardar/Restaurar Backup**: exporta o importa en un archivo `.json` toda tu configuración
-  (billeteras, apps, preferencias). El backup **no incluye el historial** de notificaciones —
-  eso se exporta aparte, en texto o CSV, desde los botones correspondientes.
+Todas las sucursales mandan su CSV al mismo chat, y puedes avisarles a todas o a una en
+particular con los comandos de arriba.
 
-### Compartir
+### Copia de seguridad de la configuración (por teléfono)
 
-- **Compartir Historial / CSV / Log**: manda el contenido como archivo adjunto por cualquier
-  app (WhatsApp, correo, Bluetooth, etc.), útil para revisar o respaldar fuera del teléfono.
-- **Compartir Aplicación**: comparte el propio instalador (APK) de miSecretaria para que otra
-  persona lo instale sin necesidad de internet.
+- **Guardar/Restaurar Backup**: exporta o importa en un archivo `.json` toda la configuración
+  de ESE teléfono (billeteras, apps, preferencias, y el Token/Chat ID si está configurado). El
+  backup **no incluye el historial** de notificaciones — eso se exporta aparte, en texto o CSV.
 
-## Actualizaciones
+---
 
-Desde Configuración, el botón **"Buscar actualización"** revisa si hay una versión nueva
-publicada y, si la hay, la descarga e instala directamente — no necesitas buscarla a mano.
+## Herramientas de administrador (se corren en tu computadora, no en los teléfonos)
 
-## Funciones en desarrollo (todavía no completas)
+Todo lo siguiente vive en la carpeta del proyecto (`~/Documents/miSecretaria` en el Debian del
+administrador) — no es parte de la app Android, son scripts de escritorio.
 
-- **Medios nuevos de WhatsApp** (fotos/audio/video que te mandan): la app ya detecta cuándo
-  WhatsApp anuncia un medio nuevo y busca el archivo real, pero por ahora solo lo registra en
-  el log de depuración — todavía no lo reproduce, no guarda copia ni lo reenvía por Telegram.
-- La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real
-  instalada para español (usa "Instalar más voces" en Configuración para revisar qué voces
-  trae tu equipo).
+### Publicar una versión nueva
+
+Doble clic en `miSecretaria_Update.desktop` (o `./release.sh` a mano): compila, publica el
+Release en GitHub con el APK adjunto, actualiza el manifiesto de "Buscar actualización", y
+hace commit+push. Es lo que hace que el botón "Buscar actualización" de los teléfonos vea la
+versión nueva.
+
+### Generar la build "Interna" (APK)
+
+```bash
+cd ~/Documents/miSecretaria
+cp secrets.properties.example secrets.properties   # solo la primera vez
+# editar secrets.properties con tu botToken/chatId reales
+./build_interna.sh
+```
+Genera `Releases/miSecretariaV(x.x)-debug_Interna.apk` — el APK con el Token/Chat ID
+pre-rellenados que se reparte a mano a las sucursales (ver arriba). **Nunca se sube a GitHub ni
+a ningún canal público.**
+
+### Base de datos local de todos los CSV (`miSecretaria.db`)
+
+Si quieres tener juntos, en un solo lugar consultable, todos los CSV que las sucursales te
+mandan por Telegram (en vez de verlos sueltos en el chat):
+
+1. Asegúrate de tener **Telegram Desktop abierto con tu sesión** en tu computadora, en el chat
+   donde llegan los CSV, con la descarga automática de archivos activada para ese chat.
+2. Corre `python3 csv_importer.py` (o doble clic en `miSecretaria_ImportarCSV.desktop`) desde
+   la carpeta del proyecto. Muestra un panel en vivo con métricas (archivos/filas importadas,
+   próxima revisión, errores) y los últimos eventos, mientras vigila tu carpeta de descargas y
+   guarda cada CSV nuevo en `miSecretaria.db` (SQLite) y `miSecretaria.log` (log detallado, en
+   modo debug, con rotación automática).
+3. Cierra la ventana o presiona Ctrl+C cuando quieras detenerlo — no se inicia solo ni queda
+   como servicio permanente.
+
+### Ver el historial en un panel web (`miSecretaria.html`)
+
+Mientras `csv_importer.py` esté corriendo (ver arriba), puedes encender un dashboard local de
+solo lectura con todo lo que hay en `miSecretaria.db` — tarjetas con el total y el desglose por
+sucursal, y una tabla con las últimas 200 notificaciones.
+
+- **Desde Telegram (recomendado):** manda `/panelon` al bot para encenderlo y `/paneloff` para
+  apagarlo. Estos dos comandos son distintos de los que usan las sucursales (`/notificar`,
+  etc.) — los procesa tu computadora, no los teléfonos, así que solo funcionan si
+  `csv_importer.py` está corriendo en tu PC y tienes `secrets.properties` configurado.
+- **A mano, sin Telegram:** `python3 web_server.py` desde la carpeta del proyecto.
+- Una vez encendido, ábrelo en el navegador: `http://localhost:8766` (o
+  `http://<IP-de-tu-PC>:8766` desde otro dispositivo de tu misma red).
+
+### Backup portable del proyecto completo (migrar a otra computadora)
+
+Doble clic en `miSecretaria_backup.desktop` (o `bash backup_proyecto.sh`): empaqueta el
+proyecto completo — código, `secrets.properties` (tu Token/Chat ID real), `miSecretaria.db` y
+`miSecretaria.log` — en un único `.tar.gz` dentro de `Archivo/`, listo para copiar a otra
+computadora y descomprimir ahí. Es como un "Firefox portable": la sesión (tu Token/Chat ID, y
+todo el historial acumulado en `miSecretaria.db`) viaja junto con el código, sin tener que
+reconfigurar nada a mano en la máquina nueva. No incluye `.git` ni los APK de `Releases/`
+(ya están en GitHub) para que el archivo quede liviano. El script mismo imprime los pasos
+exactos para restaurarlo al terminar.
+
+⚠️ El `.tar.gz` generado contiene tu token real — trátalo como una contraseña, guárdalo en un
+lugar privado (no lo subas a un canal público ni a una nube sin cifrar).
