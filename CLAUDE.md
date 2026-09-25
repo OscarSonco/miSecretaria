@@ -4,14 +4,15 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-25)
 
-**2.19 a 2.26 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+**2.19 a 2.27 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
 `release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
 que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
 nuevo. **Desde 2.27, con el teléfono en casa conectado por USB, Claude también instala directo
-por ADB** (regla nueva, ver más abajo) — 2.27 ya quedó instalada así. **2.24 se probó en vivo y
-SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales con la ruta
-`accounts/1009/Media/...`). Código en disco = v2.27 (`versionCode=2027`, reintento del escaneo
-de medios, ver "Tanda v2.27" — **AÚN NO publicada**, falta correr
+por ADB** (regla nueva, ver más abajo) — 2.27 y 2.28 ya quedaron instaladas así. **2.24 se
+probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales con la ruta
+`accounts/1009/Media/...`). **2.27 se probó y encontró que el audio SIEMPRE fallaba (v2.28 lo
+arregla, ver esa sección).** Código en disco = v2.28 (`versionCode=2028`, notas de voz en
+subcarpetas por semana, ver "Tanda v2.28" — **AÚN NO publicada**, falta correr
 `release.sh` otra vez). **2.23 en particular sube el perfil de permisos de la app para TODAS
 las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
 usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
@@ -80,6 +81,38 @@ el usuario:
   acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.28 (2026-09-25) — el audio SIEMPRE fallaba: notas de voz en subcarpetas por semana
+
+🐛→✅ **Diagnóstico completo con acceso directo al teléfono** (usuario pidió revisar "la lista
+de útiles no sale" + "el audio/video no sale aunque se detecta"). Se leyó `shared_prefs/
+scosecretaria_v01.xml` directo del teléfono (`run-as`) y se comparó contra el log — mucho más
+concluyente que solo el log:
+- **Fotos y video:** SÍ funcionan la mayoría de las veces (confirmado con varios `mediaType:
+  "image"`/`"video"` reales en el historial, incluyendo capturas de pantalla mostrando el botón
+  "▶ Reproducir video" ya renderizado bien). Hay misses ocasionales (ej. "TIGO 01 OSC: 📷 Envió
+  una foto." de las 12:21:18 sin medio) — se acepta como el resto de tiempo/timing normal, no
+  se investigó cada caso individual.
+- **Audio: 100% de fallos** — se encontraron **9 notas de voz distintas** en el historial
+  (`"🎤 Mensaje de voz (0:12)"`, `(0:09)`, `(0:14)`, etc., de varios contactos, en distintos
+  momentos, con y sin los reintentos de v2.27), TODAS con `mediaType: null`. Ni una sola vez
+  funcionó, con o sin reintento — esto ya no es un problema de tiempo/timing (el reintento del
+  v2.27 ya lo cubría), es una carpeta que el código nunca miraba.
+- **Causa real, confirmada con `adb shell ls` directo sobre la carpeta real
+  (`.../WhatsApp/accounts/1009/Media/WhatsApp Voice Notes/`):** a diferencia de "WhatsApp
+  Images"/"WhatsApp Video" (que guardan los archivos sueltos, directo en la carpeta), "WhatsApp
+  Voice Notes" los agrupa en subcarpetas por semana (`202635`, `202636`... `202639` = año 2026,
+  semana 39 — los `.opus` reales viven DENTRO de esas). `findNewMedia()` hacía
+  `dir.listFiles()` y filtraba `f.isFile` — como el contenido de "WhatsApp Voice Notes" son
+  puras CARPETAS (las semanas), nunca pasaba el filtro, nunca se encontraba ni un solo audio.
+- ✅ **Arreglo: `filesIn(dir, extraDepth = 1)` (nueva)** reemplaza el `dir.listFiles()` directo
+  — junta los archivos sueltos de la carpeta MÁS los de sus subcarpetas inmediatas (cubre las
+  semanas de "Voice Notes" y de paso "Private"/"Sent", que existen en varios tipos). Se aplica
+  igual a los tres tipos (imagen/video/audio) — no hace falta tratar el audio como caso
+  especial, la misma función sirve para todos.
+- **Sin confirmar todavía si esto arregla el audio de verdad** — recién se instaló (por ADB,
+  regla nueva de esta misma tanda) en el teléfono del usuario. Falta que llegue una nota de voz
+  nueva y revisar que esta vez sí aparezca con su botón de reproducir.
 
 ### Tanda v2.27 (2026-09-25) — reintento del escaneo de medios + regla nueva de instalación
 
@@ -854,15 +887,16 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2027`, `versionName="2.27"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2028`, `versionName="2.28"` (ver `app/build.gradle.kts`,
   subida 2026-09-25). Compila limpio, build Interna generada, **YA INSTALADA por ADB en el
   teléfono del usuario** (`adb install -r`, nueva regla — ver arriba) pero **AÚN NO publicada
-  en GitHub/Firebase** — v2.26 sigue siendo lo que ven las sucursales vía "Buscar
+  en GitHub/Firebase** — v2.27 sigue siendo lo que ven las sucursales vía "Buscar
   actualización" hasta que se corra `release.sh`. **v2.24 ya se confirmó en vivo** (fotos
-  reales encontradas con la ruta `accounts/1009/...`); **v2.26 se probó y encontró un bug real
-  (solo 1 de 3 fotos aparecía) que v2.27 arregla con reintentos** (ver "Tanda v2.27").
-  **Pendiente de verificar en vivo:** si el reintento de v2.27 SÍ resuelve el problema de las
-  fotos perdidas (recién se instaló), y el escaneo genérico de respaldo de v2.25 (nunca se
+  reales encontradas con la ruta `accounts/1009/...`); **v2.28 arregla un bug real confirmado
+  con acceso directo al teléfono: el audio fallaba SIEMPRE (100%) porque "WhatsApp Voice
+  Notes" guarda los `.opus` en subcarpetas por semana, no sueltos como fotos/video — ver
+  "Tanda v2.28".** **Pendiente de verificar en vivo:** si el fix de v2.28 SÍ hace que las notas
+  de voz aparezcan (recién se instaló), y el escaneo genérico de respaldo de v2.25 (nunca se
   ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
@@ -1143,7 +1177,11 @@ cada exclusión.
   — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
   switch de cada fila en Configuración.
 - `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23, ruta
-  corregida v2.24, escaneo genérico de respaldo v2.25**) — detección de medios NUEVOS de
+  corregida v2.24, escaneo genérico de respaldo v2.25, subcarpetas por semana v2.28**) —
+  **v2.28:** `filesIn(dir, extraDepth=1)` reemplaza `dir.listFiles()` directo — "WhatsApp Voice
+  Notes" agrupa los `.opus` en subcarpetas por semana (`202639`, etc.), a diferencia de
+  imagen/video que los dejan sueltos; sin esto el audio fallaba el 100% de las veces
+  (confirmado con `adb shell ls` directo sobre la carpeta real). Detección de medios NUEVOS de
   WhatsApp: `isWhatsApp`/`looksLikeNewMedia` (con exclusión explícita de sticker/GIF) para
   decidir si vale la pena buscar, `hasMediaPermission` (`Environment.isExternalStorageManager()`
   en Android 11+, permiso clásico en versiones viejas) y `findNewMedia`. **Desde v2.23,

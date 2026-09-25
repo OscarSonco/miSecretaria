@@ -175,9 +175,7 @@ object WhatsAppMediaScanner {
             val dirs = mediaDirsFor(subdir)
             dirsFound += dirs.size
             for (dir in dirs) {
-                val files = runCatching { dir.listFiles() }.getOrNull() ?: continue
-                for (f in files) {
-                    if (!f.isFile) continue
+                for (f in filesIn(dir, extraDepth = 1)) {
                     if (f.extension.lowercase(Locale.ROOT) in IGNORED_EXTENSIONS) continue
                     val mtime = f.lastModified()
                     if (mtime < fromMs || mtime > toMs) continue
@@ -194,6 +192,24 @@ object WhatsAppMediaScanner {
             ScoSecretariaLogger.debug(context, "WhatsAppMediaScanner: ninguna carpeta de medios de WhatsApp accesible ni por ruta conocida ni por escaneo genérico")
         }
         return matches.filter { markIfNew(context, it.path) }
+    }
+
+    /**
+     * Archivos directos en `dir`, más los de sus subcarpetas hasta `extraDepth` niveles.
+     * **v2.28, confirmado en vivo:** "WhatsApp Voice Notes" (a diferencia de "WhatsApp
+     * Images"/"WhatsApp Video", que guardan los archivos sueltos) los agrupa en subcarpetas
+     * por semana (ej. `202639/PTT-...opus`) — con solo `dir.listFiles()` nunca se veía ni un
+     * solo archivo de audio, solo las carpetas de semana (por eso el audio fallaba siempre,
+     * a diferencia de foto/video que sí funcionaban la mayoría de las veces). Con
+     * `extraDepth=1` se cubre ese caso (y "Private"/"Sent", que existen en más de un tipo) sin
+     * recorrer indefinidamente.
+     */
+    private fun filesIn(dir: File, extraDepth: Int): List<File> {
+        val entries = runCatching { dir.listFiles() }.getOrNull() ?: return emptyList()
+        val files = entries.filter { it.isFile }
+        if (extraDepth <= 0) return files
+        val nested = entries.filter { it.isDirectory }.flatMap { filesIn(it, extraDepth - 1) }
+        return files + nested
     }
 
     private fun markIfNew(context: Context, key: String): Boolean {
