@@ -32,17 +32,33 @@ import java.util.Locale
  * escaneo genérico por nombre de carpeta (ver `genericWhatsAppBases()`/`findDirsNamed()`),
  * mismo espíritu que `SoncoBot/WhatsAppWatcher.kt`. Las rutas conocidas siguen siendo el
  * camino principal — el genérico es solo respaldo.
+ *
+ * **v2.28:** "WhatsApp Voice Notes" agrupa los `.opus` en subcarpetas por semana (a diferencia
+ * de imagen/video, que los dejan sueltos) — `filesIn()` entra un nivel para encontrarlos.
+ *
+ * **v2.29:** `MEDIA_KEYWORDS` pasó de palabras sueltas ("foto", "audio", "video") a las
+ * FRASES exactas que WhatsApp genera — confirmado en vivo que una palabra suelta produce
+ * falsos positivos graves: un mensaje de TEXTO que solo menciona la palabra "audio" en una
+ * frase normal disparaba el escaneo y podía robarle a otra conversación una foto/video/audio
+ * ajeno que llegó casi al mismo tiempo (dedupe por ruta = solo un dueño posible por archivo).
  */
 object WhatsAppMediaScanner {
     private const val PREFS = "whatsapp_media_scanner_v1"
     private const val SEEN = "seen_media_paths"
     private val WHATSAPP_PACKAGES = setOf("com.whatsapp", "com.whatsapp.w4b")
 
-    // Frases típicas de notificación de medio nuevo, en español e inglés — deciden CUÁNDO
-    // vale la pena escanear las carpetas (no se escanea en cada notificación de WhatsApp).
+    // v2.29: FRASES exactas que genera WhatsApp mismo para avisar de un medio nuevo — no
+    // palabras sueltas. Confirmado en vivo que "foto"/"audio"/"video" como palabra suelta
+    // producía falsos positivos graves: un mensaje de TEXTO diciendo "Este es el audio de
+    // doña Marta" (una persona hablando de un audio, no la notificación real de WhatsApp)
+    // disparaba el escaneo y terminaba robándole una FOTO ajena a otra conversación que
+    // llegó casi al mismo tiempo. Las frases de abajo son las que WhatsApp realmente pone en
+    // la notificación ("📷 Envió una foto.", "🎥 Envió un video. (0:06)", "🎤 Mensaje de voz
+    // (0:07)") — muy poco probable que alguien las escriba tal cual en una conversación normal.
     private val MEDIA_KEYWORDS = listOf(
-        "foto", "photo", "imagen", "picture", "video",
-        "audio", "mensaje de voz", "voice message", "nota de voz"
+        "envió una foto", "sent a photo", "envió una imagen",
+        "envió un video", "sent a video",
+        "mensaje de voz", "voice message"
     )
 
     // Por pedido explícito del usuario: los stickers (y GIFs) no cuentan como medio a detectar.

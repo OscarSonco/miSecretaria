@@ -4,15 +4,17 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-25)
 
-**2.19 a 2.27 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+**2.19 a 2.28 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
 `release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
 que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
 nuevo. **Desde 2.27, con el teléfono en casa conectado por USB, Claude también instala directo
-por ADB** (regla nueva, ver más abajo) — 2.27 y 2.28 ya quedaron instaladas así. **2.24 se
-probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales con la ruta
-`accounts/1009/Media/...`). **2.27 se probó y encontró que el audio SIEMPRE fallaba (v2.28 lo
-arregla, ver esa sección).** Código en disco = v2.28 (`versionCode=2028`, notas de voz en
-subcarpetas por semana, ver "Tanda v2.28" — **AÚN NO publicada**, falta correr
+por ADB** (regla nueva, ver más abajo) — 2.27, 2.28 y 2.29 ya quedaron instaladas así. **2.24
+se probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales con la ruta
+`accounts/1009/Media/...`). **2.28 arregló el audio (subcarpetas por semana) pero el usuario
+reportó "está peor" — causa real: `MEDIA_KEYWORDS` con palabras sueltas ("audio"/"foto")
+producía falsos positivos que le ROBABAN medios a mensajes de texto normales que solo
+mencionaban esas palabras (ver "Tanda v2.29", que lo arregla con frases exactas).** Código en
+disco = v2.29 (`versionCode=2029` — **AÚN NO publicada**, falta correr
 `release.sh` otra vez). **2.23 en particular sube el perfil de permisos de la app para TODAS
 las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
 usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
@@ -81,6 +83,42 @@ el usuario:
   acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.29 (2026-09-25) — v2.28 sí encontró el audio, pero empezó a robar medios ajenos
+
+🐛→✅ **El usuario probó v2.28 y reportó "está peor"** — sin más detalle en el mensaje, así que
+se investigó de nuevo con acceso directo al teléfono (`shared_prefs` + capturas de pantalla)
+antes de asumir nada:
+- ✅ **El fix de v2.28 SÍ funcionó** — se confirmó una nota de voz real
+  (`"Sonco Perú: 🎤 Mensaje de voz (0:07)"`) con `mediaType: "audio"` y su archivo `.opus`
+  copiado correctamente. El problema no era que el audio siguiera sin encontrarse.
+- 🐛 **El problema real, encontrado comparando mensaje vs. medio adjunto en el historial:**
+  `"Sonco Perú: Este es el audio de doña Marta"` (un mensaje de TEXTO normal, la persona
+  simplemente contando que había un audio) apareció con `mediaType: "image"` — ¡le habían
+  adjuntado una FOTO que no tenía nada que ver! Causa: `MEDIA_KEYWORDS` tenía palabras sueltas
+  ("foto", "audio", "video") — cualquier mensaje de texto normal que solo MENCIONE esas
+  palabras (muy común en una conversación real, ej. "te mando el audio", "esa es la foto que
+  pediste") disparaba `looksLikeNewMedia() == true` y arrancaba un escaneo de las carpetas de
+  WhatsApp igual que si fuera la notificación real de un medio nuevo. En esta prueba estaban
+  llegando varias fotos/videos/audios reales casi al mismo tiempo (mensajes de prueba
+  seguidos) — el escaneo de ese mensaje de texto encontró la foto de OTRO mensaje real
+  (llegada dentro de la misma ventana de ±30s/+15s) y, como el dedupe es por ruta de archivo
+  (una vez "visto" no se repite), esa foto quedó apropiada por el mensaje equivocado.
+- ✅ **Arreglo:** `MEDIA_KEYWORDS` pasó de palabras sueltas a las **frases exactas** que
+  WhatsApp realmente genera en su propia notificación: `"envió una foto"`, `"envió un video"`,
+  `"mensaje de voz"` (+ equivalentes en inglés). Es muy poco probable que una persona escriba
+  esas frases exactas conversando normal — a diferencia de la palabra suelta "foto"/"audio",
+  que sí es común. Esto reduce drásticamente (sin eliminar del todo — sigue siendo texto libre
+  de otra persona) el riesgo de falso positivo.
+- **Lección para el futuro:** al ajustar heurísticas de detección basadas en texto libre de
+  terceros (acá, lo que WhatsApp pone en la notificación), preferir SIEMPRE la frase más
+  específica posible sobre la palabra suelta más genérica — la ganancia en "atrapar más casos"
+  casi nunca compensa el riesgo de falsos positivos con datos que no controlamos.
+- **Sin confirmar todavía si esto elimina el problema del todo** — recién se instaló (por ADB).
+  Si vuelve a pasar con las nuevas frases (más raro, pero no imposible en una conversación que
+  sí mencione "mensaje de voz" al hablar de otra cosa), habría que agregar una validación extra
+  (ej. exigir que el mensaje sea CORTO y esté compuesto casi solo por la frase, no una oración
+  larga que la contenga).
 
 ### Tanda v2.28 (2026-09-25) — el audio SIEMPRE fallaba: notas de voz en subcarpetas por semana
 
@@ -887,16 +925,17 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2028`, `versionName="2.28"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2029`, `versionName="2.29"` (ver `app/build.gradle.kts`,
   subida 2026-09-25). Compila limpio, build Interna generada, **YA INSTALADA por ADB en el
   teléfono del usuario** (`adb install -r`, nueva regla — ver arriba) pero **AÚN NO publicada
-  en GitHub/Firebase** — v2.27 sigue siendo lo que ven las sucursales vía "Buscar
+  en GitHub/Firebase** — v2.28 sigue siendo lo que ven las sucursales vía "Buscar
   actualización" hasta que se corra `release.sh`. **v2.24 ya se confirmó en vivo** (fotos
-  reales encontradas con la ruta `accounts/1009/...`); **v2.28 arregla un bug real confirmado
-  con acceso directo al teléfono: el audio fallaba SIEMPRE (100%) porque "WhatsApp Voice
-  Notes" guarda los `.opus` en subcarpetas por semana, no sueltos como fotos/video — ver
-  "Tanda v2.28".** **Pendiente de verificar en vivo:** si el fix de v2.28 SÍ hace que las notas
-  de voz aparezcan (recién se instaló), y el escaneo genérico de respaldo de v2.25 (nunca se
+  reales encontradas con la ruta `accounts/1009/...`); **v2.28 arregló el audio (confirmado:
+  una nota de voz real se encontró bien) pero introdujo un bug distinto — le robaba medios a
+  mensajes de texto que solo mencionaban la palabra "foto"/"audio"/"video" — que v2.29 arregla
+  con frases exactas en vez de palabras sueltas (ver "Tanda v2.29").** **Pendiente de
+  verificar en vivo:** si v2.29 elimina el problema del robo de medios (recién se instaló), y
+  el escaneo genérico de respaldo de v2.25 (nunca se
   ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
