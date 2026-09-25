@@ -122,7 +122,7 @@ class WalletNotificationListener : NotificationListenerService() {
                 if (matches.isNotEmpty()) {
                     matches.forEach { ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${it.type} \"${it.displayName}\" (${it.path})") }
                 } else {
-                    ScoSecretariaLogger.debug(this, "Notificación de medio de WhatsApp sin match todavía en MediaStore (title=\"$title\")")
+                    ScoSecretariaLogger.debug(this, "Notificación de medio de WhatsApp sin encontrar el archivo todavía en las carpetas de WhatsApp (title=\"$title\")")
                 }
             } else {
                 ScoSecretariaLogger.debug(this, "Medio de WhatsApp detectado pero falta el permiso de acceso a medios")

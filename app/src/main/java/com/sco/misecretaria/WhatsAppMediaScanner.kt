@@ -49,13 +49,35 @@ object WhatsAppMediaScanner {
         "audio" to "WhatsApp Voice Notes",
     )
 
-    private fun waBases(): List<String> {
+    // Raíces de WhatsApp SIN el "/Media" final — porque desde que WhatsApp soporta varias
+    // cuentas vinculadas en el mismo teléfono, algunos instalan meten una carpeta de cuenta
+    // ENTRE la raíz y "Media" (confirmado en vivo, 2026-09-23: la ruta real en un teléfono de
+    // prueba fue `.../WhatsApp/accounts/<id>/Media/...`, no `.../WhatsApp/Media/...` directo).
+    // `mediaDirsFor()` revisa las dos formas.
+    private fun waRoots(): List<String> {
         val sd = Environment.getExternalStorageDirectory().absolutePath
         return listOf(
-            "$sd/Android/media/com.whatsapp/WhatsApp/Media",
-            "$sd/Android/media/com.whatsapp.w4b/WhatsApp Business/Media",
-            "$sd/WhatsApp/Media",
+            "$sd/Android/media/com.whatsapp/WhatsApp",
+            "$sd/Android/media/com.whatsapp.w4b/WhatsApp Business",
+            "$sd/WhatsApp",
         )
+    }
+
+    /** Para un subdirectorio tipo "WhatsApp Images", devuelve todas las carpetas reales que
+     * podrían contenerlo — la forma clásica (`<raíz>/Media/<subdir>`) y la forma con cuenta
+     * (`<raíz>/accounts/<id>/Media/<subdir>`, cualquier `<id>` que exista). */
+    private fun mediaDirsFor(subdir: String): List<File> {
+        val found = mutableListOf<File>()
+        for (root in waRoots()) {
+            val rootDir = File(root)
+            File(rootDir, "Media/$subdir").takeIf { it.isDirectory }?.let { found += it }
+            runCatching { File(rootDir, "accounts").listFiles() }.getOrNull()?.forEach { accountDir ->
+                if (accountDir.isDirectory) {
+                    File(accountDir, "Media/$subdir").takeIf { it.isDirectory }?.let { found += it }
+                }
+            }
+        }
+        return found
     }
 
     fun isWhatsApp(packageName: String) = packageName in WHATSAPP_PACKAGES
@@ -90,9 +112,12 @@ object WhatsAppMediaScanner {
         val fromMs = postTimeMs - windowBeforeMs
         val toMs = postTimeMs + windowAfterMs
         val matches = mutableListOf<MediaMatch>()
+        var dirsFound = 0
         for ((type, subdir) in WA_SUBDIRS) {
-            for (base in waBases()) {
-                val files = runCatching { File(base, subdir).listFiles() }.getOrNull() ?: continue
+            val dirs = mediaDirsFor(subdir)
+            dirsFound += dirs.size
+            for (dir in dirs) {
+                val files = runCatching { dir.listFiles() }.getOrNull() ?: continue
                 for (f in files) {
                     if (!f.isFile) continue
                     if (f.extension.lowercase(Locale.ROOT) in IGNORED_EXTENSIONS) continue
@@ -101,6 +126,12 @@ object WhatsAppMediaScanner {
                     matches += MediaMatch(f.absolutePath, f.name, type, mtime)
                 }
             }
+        }
+        // Diagnóstico: si ninguna carpeta de medios existe/es legible, es un problema de RUTA
+        // (este teléfono guarda los medios en otro lado) — distinto de "la carpeta es correcta
+        // pero el archivo todavía no aparece" (problema de tiempo, se resuelve solo reintentando).
+        if (dirsFound == 0) {
+            ScoSecretariaLogger.debug(context, "WhatsAppMediaScanner: ninguna carpeta de medios de WhatsApp accesible en las rutas conocidas — puede que este teléfono use otra ruta")
         }
         return matches.filter { markIfNew(context, it.path) }
     }

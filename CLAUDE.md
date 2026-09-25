@@ -2,18 +2,15 @@
 
 Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Claude.
 
-## ESTADO ACTUAL (actualizado 2026-09-24)
+## ESTADO ACTUAL (actualizado 2026-09-25)
 
-Código en disco = v2.23 (`versionCode=2023`) — el usuario publicó hasta 2.19 (`gh release list`
-confirma `v2.19` como "Latest" en ese momento, y es lo que sigue instalado en su teléfono real).
-**2.20 (Papelera + colores + botón Volver), 2.21 (fix del bug real "el bot dejó de responder
-por ~13h sin crashear"), 2.22 (`/panelon`/`/paneloff` agregados al `/help`) y 2.23 (medios de
-WhatsApp por lectura directa de archivo, `MANAGE_EXTERNAL_STORAGE`) están compiladas con build
-Interna generada, pero AÚN NO publicadas** — falta que el usuario corra `release.sh`/el
-`.desktop` cuando quiera cerrarlas. **2.23 en particular sube el perfil de permisos de la app
-para TODAS las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) —
-conviene que el usuario avise al personal antes de repartir esta versión, no solo publicarla
-sin aviso. **Importante:** la tanda v2.19 completa
+**2.19 a 2.23 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+`release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
+que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
+nuevo. Código en disco = v2.24 (`versionCode=2024`, fix de v2.23, ver "Tanda v2.24" — **AÚN NO
+publicada**, falta correr `release.sh` otra vez). **2.23 en particular sube el perfil de
+permisos de la app para TODAS las sucursales** (pide "Acceso a todos los archivos", no un
+permiso normal) — conviene que el usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
 (borrar/fijar/copiar/nota + centralización de textos) salió a producción SIN haberse probado en
 vivo — la próxima sesión debe priorizar confirmar con el usuario que se ve/funciona bien en el
 teléfono real, no asumir que "recién compilado" significa "sin probar aún" como en tandas
@@ -36,6 +33,37 @@ el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.24 (2026-09-25) — el escaneo directo de v2.23 buscaba en la ruta equivocada
+
+🐛→✅ **Probado en vivo por el usuario (de viaje, capturas + log reales) apenas se publicó
+2.23:** mandaron dos fotos por WhatsApp y ninguna se detectó — 5 intentos en ~2 minutos, todos
+"sin encontrar el archivo". Antes (con `MediaStore`), una foto se encontraba en <20s, así que
+2 minutos sin éxito no es "todavía no terminó de descargar", es la ruta mal.
+- **Causa:** `waBases()` de v2.23 asumía `.../WhatsApp/Media/<subcarpeta>` directo. Pero ya
+  estaba documentado desde hace meses (ver limitaciones conocidas) que en este teléfono WhatsApp
+  guarda los medios con una carpeta de CUENTA en medio:
+  `.../WhatsApp/accounts/<id>/Media/<subcarpeta>` (WhatsApp soporta varias cuentas vinculadas
+  en un mismo teléfono desde hace un tiempo, y mete esa carpeta cuando aplica). v2.23 nunca
+  miraba ahí.
+- ✅ **Arreglo:** `waRoots()` ahora da la raíz SIN el `/Media` final, y `mediaDirsFor(subdir)`
+  revisa las DOS formas — `<raíz>/Media/<subdir>` (clásica) y `<raíz>/accounts/<id>/Media/<subdir>`
+  (con cuenta, para cualquier `<id>` que exista, listando la carpeta `accounts/`). Se aplica a
+  las tres carpetas (`WhatsApp Images`/`WhatsApp Video`/`WhatsApp Voice Notes`) por igual.
+- ✅ **Diagnóstico agregado:** si `findNewMedia` no encuentra NINGUNA carpeta accesible en
+  ninguna de las rutas conocidas (ni clásica ni con cuenta), ahora loguea un DEBUG explícito
+  ("ninguna carpeta de medios de WhatsApp accesible... puede que este teléfono use otra ruta")
+  — para la próxima vez que esto falle, distinguir de una vez "la ruta está mal" de "el archivo
+  todavía no llegó" sin tener que razonarlo desde cero.
+- Se corrigió de paso un mensaje de log que había quedado con texto de la versión anterior
+  ("...sin match todavía en MediaStore" en `WalletNotificationListener.kt`, aunque ya no se usa
+  MediaStore desde v2.23 — solo texto, no afectaba la función).
+- **Sin confirmar todavía si esta ruta con cuenta es la correcta** — se basó en la nota ya
+  documentada de meses atrás, no en una verificación en vivo AHORA MISMO (el teléfono no estaba
+  conectado por ADB al momento del fix, el usuario está de viaje). Falta que el usuario prueba
+  mandando otra foto/audio tras instalar 2.24 y confirmar en el log.
+- **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
+  subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
 
 ### Tanda v2.23 (2026-09-24) — medios de WhatsApp: lectura directa de archivo, ya no MediaStore
 
@@ -703,13 +731,14 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2023`, `versionName="2.23"` (ver `app/build.gradle.kts`,
-  subida 2026-09-24). Compila limpio en el Debian, build Interna generada. **NO publicada
-  todavía** — la v2.19 sigue siendo la última publicada (`gh release list`/`update.json`) y lo
-  instalado en el teléfono real del usuario. **Pendiente de verificar en vivo:** el permiso
-  nuevo `MANAGE_EXTERNAL_STORAGE` + detección real de foto/audio/video de WhatsApp por lectura
-  directa de archivo (Tanda v2.23, ver esa sección — el diseño anterior con `MediaStore` SÍ se
-  probó y confirmó roto para audio; este reemplazo aún no se probó en vivo), guardar/probar el
+- **Versión actual:** `versionCode=2024`, `versionName="2.24"` (ver `app/build.gradle.kts`,
+  subida 2026-09-25). Compila limpio en el Debian, build Interna generada. **NO publicada
+  todavía** — v2.23 SÍ está publicada y es lo último que el usuario puede recibir vía "Buscar
+  actualización" hasta que se publique 2.24 (`gh release list`/`update.json` reflejan v2.23).
+  **Pendiente de verificar en vivo:** el fix de ruta de v2.24 (carpeta con cuenta,
+  `accounts/<id>/Media/...`, ver "Tanda v2.24") — v2.23 SÍ se probó en vivo y se confirmó que
+  no encontraba nada, ese es el bug que arregla 2.24, pero el arreglo en sí aún no se probó.
+  También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
@@ -971,20 +1000,25 @@ cada exclusión.
   **`remove()` nuevo (2026-09-23):** `WalletConfig.remove(context, name)` / `AppConfig.remove`
   — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
   switch de cada fila en Configuración.
-- `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23**) —
-  detección de medios NUEVOS de WhatsApp: `isWhatsApp`/`looksLikeNewMedia` (con exclusión
-  explícita de sticker/GIF) para decidir si vale la pena buscar, `hasMediaPermission`
-  (`Environment.isExternalStorageManager()` en Android 11+, permiso clásico en versiones
-  viejas) y `findNewMedia`. **Desde v2.23, `findNewMedia` ya NO usa `MediaStore`** (confirmado
-  que `MediaStore.Audio` no indexa notas de voz de forma confiable) — lee directo con
-  `java.io.File.listFiles()` las carpetas reales de WhatsApp
-  (`Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images|Video|Voice Notes`, + WhatsApp
-  Business y la ruta legacy), mismo patrón que `SoncoBot/WhatsAppWatcher.kt`. Sigue filtrando
-  por ventana de tiempo alrededor del `postTime` y recordando rutas ya vistas (no `MediaStore`
-  URIs) para no repetir ni recorrer el histórico. `MediaMatch.uri` pasó a ser `MediaMatch.path`
-  (`String`, ruta real del archivo). Llamado desde
-  `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que encuentra
-  (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h, pendiente).
+- `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23, ruta
+  corregida v2.24**) — detección de medios NUEVOS de WhatsApp: `isWhatsApp`/`looksLikeNewMedia`
+  (con exclusión explícita de sticker/GIF) para decidir si vale la pena buscar,
+  `hasMediaPermission` (`Environment.isExternalStorageManager()` en Android 11+, permiso
+  clásico en versiones viejas) y `findNewMedia`. **Desde v2.23, `findNewMedia` ya NO usa
+  `MediaStore`** (confirmado que `MediaStore.Audio` no indexa notas de voz de forma confiable)
+  — lee directo con `java.io.File.listFiles()` las carpetas reales de WhatsApp, mismo patrón
+  que `SoncoBot/WhatsAppWatcher.kt`. **`waRoots()`/`mediaDirsFor()` (v2.24):** por cada raíz
+  (`Android/media/com.whatsapp/WhatsApp`, la de WhatsApp Business, y la ruta legacy), revisa
+  DOS formas posibles — `<raíz>/Media/<subdir>` (clásica) y
+  `<raíz>/accounts/<id>/Media/<subdir>` (con cuenta, WhatsApp multi-cuenta; confirmado en vivo
+  que esta es la que faltaba en v2.23 y por eso no encontraba nada). Si ninguna carpeta resulta
+  accesible por ninguna ruta, loguea un DEBUG explícito para diferenciar "ruta mal" de
+  "archivo todavía no llega". Sigue filtrando por ventana de tiempo alrededor del `postTime` y
+  recordando rutas ya vistas (no `MediaStore` URIs) para no repetir ni recorrer el histórico.
+  `MediaMatch.uri` pasó a ser `MediaMatch.path` (`String`, ruta real del archivo). Llamado
+  desde `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que
+  encuentra (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h,
+  pendiente).
 - `TelegramClient.kt` — cliente mínimo (sin librerías) de la API HTTP de Telegram Bot:
   `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (con `timeoutSeconds`
   opcional desde v2.16 para long-polling real — conexión abierta hasta que llega un mensaje o
