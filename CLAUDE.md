@@ -4,12 +4,14 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-25)
 
-**2.19 a 2.25 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+**2.19 a 2.26 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
 `release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
 que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
-nuevo. **2.24 se probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales
-con la ruta `accounts/1009/Media/...`). Código en disco = v2.26 (`versionCode=2026`, copia real
-+ mostrar/reproducir en el Historial, ver "Tanda v2.26" — **AÚN NO publicada**, falta correr
+nuevo. **Desde 2.27, con el teléfono en casa conectado por USB, Claude también instala directo
+por ADB** (regla nueva, ver más abajo) — 2.27 ya quedó instalada así. **2.24 se probó en vivo y
+SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales con la ruta
+`accounts/1009/Media/...`). Código en disco = v2.27 (`versionCode=2027`, reintento del escaneo
+de medios, ver "Tanda v2.27" — **AÚN NO publicada**, falta correr
 `release.sh` otra vez). **2.23 en particular sube el perfil de permisos de la app para TODAS
 las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
 usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
@@ -21,9 +23,14 @@ no borra, mueve a Papelera) y sobre todo a 2.21 (el fix del long-poll colgado �
 tuvo que forzar el cierre de la app una vez por esto en v2.19, así que instalar 2.21+ pronto es
 recomendable, no solo cosmético). Reglas de trabajo con
 el usuario:
-- ADB es SOLO para diagnóstico técnico de Claude (logcat, `dumpsys`, `run-as` para leer el log
-  interno, `content query` sobre MediaStore) — **nunca para instalar**; el usuario instala
-  siempre por su cuenta, vía "Buscar actualización" en la app.
+- **Regla de instalación actualizada (2026-09-25, pedido explícito del usuario) — reemplaza la
+  regla anterior de "nunca instalar por ADB":** cuando el teléfono del usuario esté conectado
+  por USB a este Debian (`adb devices` lo muestra), Claude SÍ instala la app directo por ADB en
+  cada versión nueva — ya no hace falta que el usuario use "Buscar actualización" mientras está
+  en casa. Cuando el usuario esté de viaje o en una sucursal (teléfono no conectado a este
+  Debian), sigue instalando él mismo vía "Buscar actualización", como siempre. ADB para
+  diagnóstico (logcat, `dumpsys`, `run-as`, `content query`) sigue disponible siempre, esa parte
+  no cambió.
 - `CLAUDE.md` (memoria técnica) y `README.md` (manual de uso) se actualizan en cada cambio, no
   solo al cerrar una tanda.
 - **Toda versión nueva (código listo + versionCode/versionName subidos) debe ir acompañada de
@@ -73,6 +80,34 @@ el usuario:
   acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.27 (2026-09-25) — reintento del escaneo de medios + regla nueva de instalación
+
+🐛→✅ **Confirmado en vivo tras publicar 2.26:** el usuario mandó 3 fotos, solo 1 apareció en
+el Historial con la imagen real. El log del teléfono (`run-as ... cat
+files/miSecretaria_debug.log`) mostró el patrón: muchísimos "sin encontrar el archivo todavía"
+y un solo "Medio nuevo de WhatsApp... copiado a..." — el escaneo se intentaba UNA vez, justo al
+llegar la notificación, y si WhatsApp todavía no había terminado de escribir el archivo en ese
+instante exacto, se perdía para siempre (no había ningún reintento).
+- ✅ **`scheduleMediaRetry()` (nueva, en `WalletNotificationListener.kt`):** si el primer
+  intento no encuentra nada, lanza una corrutina en `serviceScope` (el mismo que ya usa el
+  long-poll de Telegram) que reintenta a los 4s y a los 10s, con una ventana de búsqueda cada
+  vez más ancha. Si encuentra el archivo en el reintento, llama a
+  `WalletNotificationStore.setMedia(id, path, type)` (nueva) para actualizar la notificación
+  YA guardada — el Historial la refresca solo, porque ya sondea el store cada 700ms. Si tras
+  los dos reintentos sigue sin nada, se deja así (no reintenta para siempre).
+- **Simplificación a propósito:** si en el reintento aparecen VARIOS archivos nuevos a la vez,
+  solo se usa el primero (a diferencia del intento inicial, que sí genera notificaciones extra
+  para cada archivo adicional) — caso raro dentro de un caso ya raro, no vale la pena la
+  complejidad completa ahí.
+- ✅ **Regla de instalación cambiada (pedido explícito del usuario):** "como está el celular
+  conectado a esta Debian, lo instalarás vía ADB, cuando yo esté fuera o en mis sucursales lo
+  instalaré vía actualización" — reemplaza la regla anterior de "ADB nunca instala". Ver la
+  regla actualizada al principio de este documento. **2.27 ya se instaló así**
+  (`adb install -r`), confirmado que preserva los datos de la app (Token/Chat ID de Telegram
+  seguían ahí después).
+- **Sin confirmar todavía si el reintento resuelve el problema** — recién se instaló, falta que
+  lleguen más fotos/audios para ver si ahora sí aparecen todas en el Historial.
 
 ### Tanda v2.26 (2026-09-25) — Paso 2 avanza a fase 2: copia real + mostrar en el Historial
 
@@ -819,15 +854,16 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2026`, `versionName="2.26"` (ver `app/build.gradle.kts`,
-  subida 2026-09-25). Compila limpio en el Debian, build Interna generada. **NO publicada
-  todavía** — v2.25 SÍ está publicada y es lo último que el usuario puede recibir vía "Buscar
-  actualización" hasta que se publique 2.26 (`gh release list`/`update.json` reflejan v2.25).
-  **v2.24 ya se confirmó en vivo (fotos reales encontradas con la ruta `accounts/1009/...`,
-  ver "Tanda v2.24").** **Pendiente de verificar en vivo:** el escaneo genérico de respaldo de
-  v2.25 (nunca se ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono) y
-  TODA la tanda v2.26 (copia real + `AudioPlayer`/`VideoOpenButton` en el Historial + limpieza
-  al vaciar papelera — nada de esto se ha visto en el teléfono todavía). También pendiente: guardar/probar el
+- **Versión actual:** `versionCode=2027`, `versionName="2.27"` (ver `app/build.gradle.kts`,
+  subida 2026-09-25). Compila limpio, build Interna generada, **YA INSTALADA por ADB en el
+  teléfono del usuario** (`adb install -r`, nueva regla — ver arriba) pero **AÚN NO publicada
+  en GitHub/Firebase** — v2.26 sigue siendo lo que ven las sucursales vía "Buscar
+  actualización" hasta que se corra `release.sh`. **v2.24 ya se confirmó en vivo** (fotos
+  reales encontradas con la ruta `accounts/1009/...`); **v2.26 se probó y encontró un bug real
+  (solo 1 de 3 fotos aparecía) que v2.27 arregla con reintentos** (ver "Tanda v2.27").
+  **Pendiente de verificar en vivo:** si el reintento de v2.27 SÍ resuelve el problema de las
+  fotos perdidas (recién se instaló), y el escaneo genérico de respaldo de v2.25 (nunca se
+  ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
@@ -842,10 +878,13 @@ guardar todo en un historial dentro de la app.
 ## Cómo compilar e instalar
 
 **Descontinuado (2026-09-23):** ya NO se usan scripts `miSecretariaV(x.x)-instalar.sh` por
-versión (compilaban e instalaban por ADB). El usuario instala siempre desde la app misma
-("Buscar actualización"), y ADB queda solo para diagnóstico técnico de Claude — nunca para
-instalar (ver [[feedback-workflow-cadence]] en memoria). Se borraron todos los `.sh` viejos
-(V2.2 a V2.11) del repo; `release.sh` nunca dependió de ellos.
+versión (compilaban e instalaban por ADB). Se borraron todos los `.sh` viejos (V2.2 a V2.11)
+del repo; `release.sh` nunca dependió de ellos.
+
+**Instalación (actualizado 2026-09-25, ver regla al principio del documento):** si el teléfono
+del usuario está conectado por USB a este Debian, Claude instala directo por ADB
+(`adb install -r ...`) en cada versión nueva. Si el usuario está de viaje o en una sucursal
+(sin el teléfono conectado aquí), instala él mismo desde la app ("Buscar actualización").
 
 Para compilar y solo verificar que el código anda bien (sin instalar nada):
 
@@ -1054,7 +1093,11 @@ cada exclusión.
   `onNotificationPosted` se cambió para que esto corra DESPUÉS de confirmar wallet/app-match +
   dedupe (antes podía consumir un archivo sin nunca asociarlo a nada). Si `findNewMedia`
   devuelve más de un archivo nuevo, el resto genera notificaciones extra propias (antes se
-  perdían). Actualiza el "heartbeat" (`DisplayPreferences.touchHeartbeat`) en cada evento, para
+  perdían). **v2.27:** si el primer intento no encuentra nada, `scheduleMediaRetry()` reintenta
+  a los 4s/10s en `serviceScope` y actualiza la notificación ya guardada con
+  `WalletNotificationStore.setMedia()` si lo encuentra después (confirmado en vivo que sin esto
+  se perdían fotos que WhatsApp tardaba en terminar de escribir). Actualiza el "heartbeat"
+  (`DisplayPreferences.touchHeartbeat`) en cada evento, para
   que la Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)`
   (llamado desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener
   si Android lo mató. **Desde v2.16, también corre el long-polling de Telegram en tiempo

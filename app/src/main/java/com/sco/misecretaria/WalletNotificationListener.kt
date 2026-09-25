@@ -135,7 +135,9 @@ class WalletNotificationListener : NotificationListenerService() {
         var mediaPath: String? = null
         var mediaType: String? = null
         var extraMediaMatches: List<WhatsAppMediaScanner.MediaMatch> = emptyList()
-        if (WhatsAppMediaScanner.isWhatsApp(packageName) && WhatsAppMediaScanner.looksLikeNewMedia(title, completeText)) {
+        val looksLikeMedia = WhatsAppMediaScanner.isWhatsApp(packageName) && WhatsAppMediaScanner.looksLikeNewMedia(title, completeText)
+        var retryMedia = false
+        if (looksLikeMedia) {
             if (WhatsAppMediaScanner.hasMediaPermission(this)) {
                 val matches = WhatsAppMediaScanner.findNewMedia(this, statusBarNotification.postTime)
                 val first = matches.firstOrNull()
@@ -145,7 +147,11 @@ class WalletNotificationListener : NotificationListenerService() {
                     if (mediaPath != null) ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${first.type} \"${first.displayName}\" copiado a $mediaPath")
                     extraMediaMatches = matches.drop(1)
                 } else {
+                    // El archivo puede no estar listo todavía en este instante exacto (WhatsApp
+                    // sigue guardándolo) — se reintenta más tarde en vez de darlo por perdido
+                    // (confirmado en vivo: pasaba seguido con esta sola pasada).
                     ScoSecretariaLogger.debug(this, "Notificación de medio de WhatsApp sin encontrar el archivo todavía en las carpetas de WhatsApp (title=\"$title\")")
+                    retryMedia = true
                 }
             } else {
                 ScoSecretariaLogger.debug(this, "Medio de WhatsApp detectado pero falta el permiso de acceso a medios")
@@ -157,6 +163,7 @@ class WalletNotificationListener : NotificationListenerService() {
         }
         val item = WalletNotification(UUID.randomUUID().toString(), label, title, message, WalletNotificationStore.now(), kind, mediaPath = mediaPath, mediaType = mediaType)
         WalletNotificationStore.add(item)
+        if (retryMedia) scheduleMediaRetry(item.id, statusBarNotification.postTime)
 
         // Si en la misma ventana llegó más de un archivo nuevo (ej. varias fotos seguidas),
         // el resto se guarda como notificaciones aparte — no se pierden, cada una con su copia.
@@ -211,6 +218,32 @@ class WalletNotificationListener : NotificationListenerService() {
         source.copyTo(dest, overwrite = true)
         dest.absolutePath
     }.getOrNull()
+
+    /**
+     * Reintento del escaneo de medios (confirmado en vivo, 2026-09-25: si se busca una sola
+     * vez justo al llegar la notificación, WhatsApp muchas veces todavía no terminó de guardar
+     * el archivo — "sin encontrar el archivo todavía" en el log, y se pierde para siempre sin
+     * esto). Reintenta a los 4s y a los 10s con una ventana más ancha cada vez; si encuentra
+     * algo, actualiza la notificación YA guardada (`WalletNotificationStore.setMedia`) — el
+     * Historial la refresca solo (ya sondea cada 700ms). Si sigue sin nada tras los dos
+     * intentos, se deja así (no reintenta para siempre).
+     */
+    private fun scheduleMediaRetry(notificationId: String, postTimeMs: Long) {
+        serviceScope.launch {
+            for (extraDelayMs in listOf(4_000L, 10_000L)) {
+                delay(extraDelayMs)
+                val matches = runCatching {
+                    WhatsAppMediaScanner.findNewMedia(applicationContext, postTimeMs, windowAfterMs = extraDelayMs + 15_000L)
+                }.getOrDefault(emptyList())
+                val first = matches.firstOrNull() ?: continue
+                val path = copyMediaToAppStorage(first) ?: continue
+                WalletNotificationStore.setMedia(notificationId, path, first.type)
+                ScoSecretariaLogger.info(applicationContext, "Medio nuevo de WhatsApp (reintento a los ${extraDelayMs / 1000}s): ${first.type} \"${first.displayName}\" copiado a $path")
+                return@launch
+            }
+            ScoSecretariaLogger.debug(applicationContext, "WhatsAppMediaScanner: no se encontró el archivo tras reintentos")
+        }
+    }
 
     /** Último mensaje real de una notificación de chat (MessagingStyle o líneas expandidas). */
     private fun latestMessageText(notification: Notification): String? {

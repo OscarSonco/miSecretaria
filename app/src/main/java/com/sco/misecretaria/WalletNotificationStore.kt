@@ -64,6 +64,15 @@ object WalletNotificationStore {
         save(PENDING, pending().map { if (it.id == id) it.copy(note = trimmed) else it })
     }
 
+    /** Actualiza el medio (foto/audio/video real) de una notificación ya guardada — usado por
+     * el reintento de `WhatsAppMediaScanner`/`WalletNotificationListener` cuando el archivo
+     * no estaba listo todavía en el primer intento y se encuentra unos segundos después. */
+    @Synchronized
+    fun setMedia(id: String, path: String, type: String) {
+        save(HISTORY, history().map { if (it.id == id) it.copy(mediaPath = path, mediaType = type) else it })
+        save(PENDING, pending().map { if (it.id == id) it.copy(mediaPath = path, mediaType = type) else it })
+    }
+
     /** Papelera: "eliminar" desde el Historial no borra de verdad — mueve a esta lista, de
      * donde se puede restaurar o vaciar (borrado permanente) más tarde. */
     @Synchronized
