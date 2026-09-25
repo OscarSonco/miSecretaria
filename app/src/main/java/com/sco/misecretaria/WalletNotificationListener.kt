@@ -114,21 +114,6 @@ class WalletNotificationListener : NotificationListenerService() {
         val completeText = latestMessageText(notification) ?: fallbackText
         val packageName = statusBarNotification.packageName
 
-        // Prototipo (solo logging, Paso 2 de CLAUDE.md): si WhatsApp anuncia un medio nuevo
-        // (foto/audio/video), buscar en MediaStore SOLO lo que se agregó justo ahora.
-        if (WhatsAppMediaScanner.isWhatsApp(packageName) && WhatsAppMediaScanner.looksLikeNewMedia(title, completeText)) {
-            if (WhatsAppMediaScanner.hasMediaPermission(this)) {
-                val matches = WhatsAppMediaScanner.findNewMedia(this, statusBarNotification.postTime)
-                if (matches.isNotEmpty()) {
-                    matches.forEach { ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${it.type} \"${it.displayName}\" (${it.path})") }
-                } else {
-                    ScoSecretariaLogger.debug(this, "Notificación de medio de WhatsApp sin encontrar el archivo todavía en las carpetas de WhatsApp (title=\"$title\")")
-                }
-            } else {
-                ScoSecretariaLogger.debug(this, "Medio de WhatsApp detectado pero falta el permiso de acceso a medios")
-            }
-        }
-
         val walletMatch = WalletConfig.detect(this, packageName, title, completeText)
         val appMatch = if (walletMatch == null) AppConfig.detect(this, packageName, title, completeText) else null
         val label = walletMatch ?: appMatch
@@ -142,8 +127,46 @@ class WalletNotificationListener : NotificationListenerService() {
         if (!WalletNotificationStore.markIfNew(dedupeKey)) return
         val message = listOf(title, completeText).filter { it.isNotBlank() }.distinct().joinToString(": ")
         if (message.isBlank()) return
-        val item = WalletNotification(UUID.randomUUID().toString(), label, title, message, WalletNotificationStore.now(), kind, mediaPath = saveThumbnailIfAny(notification))
+
+        // Paso 2 de CLAUDE.md: si WhatsApp anuncia un medio nuevo (foto/audio/video), busca el
+        // archivo real y se queda con una COPIA propia (sobrevive si el remitente lo borra).
+        // Solo se busca/consume DESPUÉS de confirmar que esta notificación sí se va a guardar
+        // (arriba) — así no se marca un archivo como "ya visto" sin nunca mostrarlo.
+        var mediaPath: String? = null
+        var mediaType: String? = null
+        var extraMediaMatches: List<WhatsAppMediaScanner.MediaMatch> = emptyList()
+        if (WhatsAppMediaScanner.isWhatsApp(packageName) && WhatsAppMediaScanner.looksLikeNewMedia(title, completeText)) {
+            if (WhatsAppMediaScanner.hasMediaPermission(this)) {
+                val matches = WhatsAppMediaScanner.findNewMedia(this, statusBarNotification.postTime)
+                val first = matches.firstOrNull()
+                if (first != null) {
+                    mediaPath = copyMediaToAppStorage(first)
+                    mediaType = first.type
+                    if (mediaPath != null) ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${first.type} \"${first.displayName}\" copiado a $mediaPath")
+                    extraMediaMatches = matches.drop(1)
+                } else {
+                    ScoSecretariaLogger.debug(this, "Notificación de medio de WhatsApp sin encontrar el archivo todavía en las carpetas de WhatsApp (title=\"$title\")")
+                }
+            } else {
+                ScoSecretariaLogger.debug(this, "Medio de WhatsApp detectado pero falta el permiso de acceso a medios")
+            }
+        }
+        if (mediaPath == null) {
+            mediaPath = saveThumbnailIfAny(notification)
+            if (mediaPath != null) mediaType = "image"
+        }
+        val item = WalletNotification(UUID.randomUUID().toString(), label, title, message, WalletNotificationStore.now(), kind, mediaPath = mediaPath, mediaType = mediaType)
         WalletNotificationStore.add(item)
+
+        // Si en la misma ventana llegó más de un archivo nuevo (ej. varias fotos seguidas),
+        // el resto se guarda como notificaciones aparte — no se pierden, cada una con su copia.
+        extraMediaMatches.forEach { match ->
+            val extraPath = copyMediaToAppStorage(match) ?: return@forEach
+            ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${match.type} \"${match.displayName}\" copiado a $extraPath")
+            WalletNotificationStore.add(
+                WalletNotification(UUID.randomUUID().toString(), label, title, "${match.type} adjunto: ${match.displayName}", WalletNotificationStore.now(), kind, mediaPath = extraPath, mediaType = match.type)
+            )
+        }
         val isPromo = (kind == NotificationKind.PAYMENT && !PaymentMessageDetector.looksLikePayment(message)) ||
             AdFilterConfig.isBlocked(this, label, message)
         ScoSecretariaLogger.info(this, "Notificación aceptada de $label (${kind.name}${if (isPromo) ", publicidad: silenciada" else ""})")
@@ -173,6 +196,21 @@ class WalletNotificationListener : NotificationListenerService() {
             file.absolutePath
         }.getOrNull()
     }
+
+    /**
+     * Paso 2d de CLAUDE.md: copia el archivo real de WhatsApp (que `WhatsAppMediaScanner`
+     * encontró en sus carpetas) a almacenamiento propio de la app — así la copia sobrevive
+     * aunque el remitente use "eliminar para todos" o WhatsApp borre el original. Se copia
+     * (no se mueve): el archivo de WhatsApp se deja intacto.
+     */
+    private fun copyMediaToAppStorage(match: WhatsAppMediaScanner.MediaMatch): String? = runCatching {
+        val source = File(match.path)
+        val dir = File(filesDir, "media").apply { mkdirs() }
+        val ext = source.extension.ifBlank { "bin" }
+        val dest = File(dir, "${UUID.randomUUID()}.$ext")
+        source.copyTo(dest, overwrite = true)
+        dest.absolutePath
+    }.getOrNull()
 
     /** Último mensaje real de una notificación de chat (MessagingStyle o líneas expandidas). */
     private fun latestMessageText(notification: Notification): String? {

@@ -4,12 +4,12 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-25)
 
-**2.19 a 2.24 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+**2.19 a 2.25 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
 `release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
 que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
 nuevo. **2.24 se probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales
-con la ruta `accounts/1009/Media/...`). Código en disco = v2.25 (`versionCode=2025`, agrega
-redundancia de escaneo genérico, ver "Tanda v2.25" — **AÚN NO publicada**, falta correr
+con la ruta `accounts/1009/Media/...`). Código en disco = v2.26 (`versionCode=2026`, copia real
++ mostrar/reproducir en el Historial, ver "Tanda v2.26" — **AÚN NO publicada**, falta correr
 `release.sh` otra vez). **2.23 en particular sube el perfil de permisos de la app para TODAS
 las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
 usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
@@ -73,6 +73,56 @@ el usuario:
   acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.26 (2026-09-25) — Paso 2 avanza a fase 2: copia real + mostrar en el Historial
+
+Pedido explícito del usuario tras confirmar que la detección (fase 1) funcionaba: "en el
+historial solo muestra el texto... allí debe mostrarse la copia de esa foto/imagen/audio". Ya
+no es solo logging — ahora la fase 1 (detectar) se conecta con 2d (copiar) y una versión ligera
+de 2e (mostrar/reproducir), saltándose por ahora la cola de reproducción con TTS y el reenvío a
+Telegram (eso sigue pendiente, ver tabla de Paso 2 más abajo).
+
+- ✅ **`WalletNotificationListener.onNotificationPosted` reordenado:** antes el escaneo de
+  medios corría ANTES de saber si esta notificación específica se iba a guardar (podía
+  consumir/marcar un archivo como "ya visto" sin nunca asociarlo a nada, si `label` salía
+  null). Ahora el escaneo corre DESPUÉS de confirmar wallet/app-match + dedupe + mensaje no
+  vacío — recién ahí, si hay coincidencia, se llama `copyMediaToAppStorage()` (nueva función,
+  `File.copyTo()` — copia, no mueve, el original de WhatsApp queda intacto) y el resultado se
+  guarda en el `mediaPath`/`mediaType` de la `WalletNotification` real, no en un log suelto.
+- ✅ **`mediaType` nuevo** en `WalletNotification` (`"image"`/`"video"`/`"audio"`, o `null`
+  para las miniaturas viejas de `EXTRA_PICTURE` — que a propósito se tratan como `"image"` por
+  compatibilidad) — persistido en `WalletNotificationStore` igual que `note`/`mediaPath`
+  (`optString`/`JSONObject.NULL`, historiales viejos sin el campo cargan igual con `null`).
+- ✅ **Varios medios en la misma ventana:** si `findNewMedia` devuelve más de un archivo nuevo
+  (ej. dos fotos seguidas), el primero se asocia a la notificación principal y **el resto ya no
+  se pierde** — cada uno de los demás genera su propia `WalletNotification` extra (mismo
+  wallet/kind, mensaje genérico `"<tipo> adjunto: <nombre>"`) con su propia copia. Antes
+  (v2.23-2.25) esos archivos adicionales se marcaban como "vistos" en el log y se perdían para
+  siempre (nunca se iban a reintentar, pero tampoco se guardaban).
+- ✅ **UI del Historial (`HomeScreen`, `MainActivity.kt`):** la tarjeta ahora decide qué mostrar
+  según `item.mediaType`:
+  - `"image"` (o `null`, legado) → `ThumbnailImage` de siempre — ahora con la foto REAL
+    completa en vez de la miniatura de baja resolución de la notificación.
+  - `"audio"` → **`AudioPlayer` (nuevo)**: botón "▶ Reproducir audio"/"⏸ Detener audio" con
+    `android.media.MediaPlayer` directo sobre el archivo copiado — sin barra de progreso ni
+    pausa real (innecesario para una nota de voz corta), se detiene solo al terminar
+    (`setOnCompletionListener`). Se libera el `MediaPlayer` en `DisposableEffect` al salir de
+    pantalla, para no dejarlo fugado.
+  - `"video"` → **`VideoOpenButton` (nuevo)**: botón "▶ Reproducir video" que abre el archivo
+    con el reproductor de video que el usuario tenga instalado, vía `Intent.ACTION_VIEW` +
+    `FileProvider` (nunca se expone la ruta `file://` cruda a otra app). Requirió agregar
+    `<files-path name="media" path="media/" />` a `res/xml/file_paths.xml` — antes el
+    `FileProvider` solo cubría `external-files-path`/`cache-path`, no `filesDir/media/` (donde
+    viven estas copias y las miniaturas viejas).
+- ✅ **Limpieza al vaciar la papelera:** `WalletNotificationStore.emptyTrash()` ahora borra del
+  disco el archivo de `mediaPath` de cada notificación antes de vaciar — para no acumular fotos
+  y videos huérfanos para siempre. (Mover a la papelera o recortar el historial a 100 SIGUEN sin
+  borrar el archivo — quedan como gaps conocidos, ver Paso 2h en la tabla de abajo; se priorizó
+  el caso de borrado permanente real, que es el más importante.)
+- **Sin probar en el teléfono todavía** — toda esta tanda es nueva: ni la copia real, ni
+  `AudioPlayer`, ni `VideoOpenButton`, ni la limpieza al vaciar papelera. Cuando se pruebe,
+  confirmar en particular que el ícono/imagen que se ve en el Historial para una foto de
+  WhatsApp ya es la foto real (más nítida que antes) y no la miniatura de baja resolución.
 
 ### Tanda v2.25 (2026-09-25) — redundancia de escaneo genérico (pedido explícito del usuario)
 
@@ -620,7 +670,7 @@ Verificado EN VIVO vía el log interno del teléfono (`run-as ... cat files/miSe
 | YASTA y "Bille" no procesan notificaciones | ✅ resuelto por el usuario: re-agregó las billeteras desde el selector de apps instaladas (ahora con `packageId` real). Quedó un rastro "YOLO" viejo (vacío) duplicado con el nuevo "Yolo Pago" — ver fila siguiente |
 | No había forma de borrar una billetera/app mal agregada, solo activar/desactivar | ✅ en código: `WalletConfig.remove`/`AppConfig.remove` + botón "Quitar" junto al switch de cada regla en Configuración (2026-09-23, sin probar en equipo aún) |
 | Audio de WhatsApp en cola / video como audio | 🔄 Paso 2 fase 1 (2a-2c) ✅ en código y compilado: permisos de medios + fila en Configuración, detección de notificación de medio nuevo de WhatsApp, búsqueda en `MediaStore` solo de archivos recién agregados (ventana de tiempo, sin recorrer histórico), solo LOGUEA lo encontrado (`WhatsAppMediaScanner.kt`). Falta probar en el teléfono con un medio real y luego 2d-2h (cola de reproducción, copia antes de borrado, reenvío a Telegram, checklist) |
-| Guardar copia de medios borrados + reenviar al bot + checklist de tipos | ❌ no implementado; depende de validar 2a-2c en el teléfono primero (ver Paso 2, 2d-2h) |
+| Guardar copia de medios borrados + reenviar al bot + checklist de tipos | 🔄 **v2.26: la copia (2d) y mostrar/reproducir en el Historial (versión ligera de 2e) YA están en código** (`copyMediaToAppStorage`, `AudioPlayer`, `VideoOpenButton`) — sin probar en el teléfono todavía. Sigue faltando: la cola de reproducción coordinada con TTS (2e completo), el checklist de qué tipos guardar/reenviar (2g), y el reenvío al bot de Telegram (2f) |
 | Subir versión (2.12) | ✅ hecho en `app/build.gradle.kts` (2026-09-23); falta que el usuario corra el release (`.desktop`/`release.sh`) |
 | Limpieza del repo (scripts/archivos huérfanos) | ✅ hecho 2026-09-23: ver "Limpieza del repo" más abajo |
 | Configurar bot de Telegram | 🔄 el usuario creó el bot (`t.me/miSecretariaPerfecta_bot`) y obtuvo el token con BotFather; Claude obtuvo el Chat ID (`8159568738`) consultando `getUpdates` una sola vez (uso puntual, no guardado en ningún archivo). **El token NO se guarda en CLAUDE.md/README/repo por seguridad** — el usuario debe pegarlo él mismo en Configuración → Telegram → "Token del bot", junto con el Chat ID. Falta que el usuario guarde y pruebe "Enviar mensaje de prueba" |
@@ -769,14 +819,15 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2025`, `versionName="2.25"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2026`, `versionName="2.26"` (ver `app/build.gradle.kts`,
   subida 2026-09-25). Compila limpio en el Debian, build Interna generada. **NO publicada
-  todavía** — v2.24 SÍ está publicada y es lo último que el usuario puede recibir vía "Buscar
-  actualización" hasta que se publique 2.25 (`gh release list`/`update.json` reflejan v2.24).
+  todavía** — v2.25 SÍ está publicada y es lo último que el usuario puede recibir vía "Buscar
+  actualización" hasta que se publique 2.26 (`gh release list`/`update.json` reflejan v2.25).
   **v2.24 ya se confirmó en vivo (fotos reales encontradas con la ruta `accounts/1009/...`,
   ver "Tanda v2.24").** **Pendiente de verificar en vivo:** el escaneo genérico de respaldo de
-  v2.25 (nunca se ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono —
-  ver "Tanda v2.25"). También pendiente: guardar/probar el
+  v2.25 (nunca se ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono) y
+  TODA la tanda v2.26 (copia real + `AudioPlayer`/`VideoOpenButton` en el Historial + limpieza
+  al vaciar papelera — nada de esto se ha visto en el teléfono todavía). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
@@ -982,7 +1033,11 @@ cada exclusión.
   de `InstalledAppsScreen`/`ReadScreen`/`SettingsScreen`/`TrashScreen` usa el composable nuevo
   `BackButton()` (verde `AccentGreen`, texto blanco) en vez de un `TextButton` plano; los
   `Button()` de `SettingsScreen` que quedaban con el color café por defecto de Material You ya
-  usan `colors = blue` (`AccentBlue`) igual que el resto.
+  usan `colors = blue` (`AccentBlue`) igual que el resto. **v2.26:** la tarjeta del Historial
+  ahora rama por `item.mediaType` — `"image"`/`null` sigue usando `ThumbnailImage` (ahora con
+  la foto real, no la miniatura), `"audio"` usa el composable nuevo `AudioPlayer`
+  (`android.media.MediaPlayer`, botón reproducir/detener), `"video"` usa `VideoOpenButton`
+  (abre con el reproductor externo vía `FileProvider`).
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,
@@ -991,9 +1046,15 @@ cada exclusión.
   `statusBarNotification.postTime` → se descartan sin registrar nada; antes esto causaba
   un chorro de "notificaciones viejas" al reiniciar el servicio). Intenta guardar una
   **miniatura de baja resolución** (`saveThumbnailIfAny`, vía `Notification.EXTRA_PICTURE`)
-  cuando la notificación trae una — es lo único accesible por esta vía; NO hay forma de
-  obtener el archivo original de foto/video/audio/documento de otra app (ver limitaciones
-  abajo). Actualiza el "heartbeat" (`DisplayPreferences.touchHeartbeat`) en cada evento, para
+  cuando la notificación trae una y no se encontró el archivo real de WhatsApp — desde v2.23
+  SÍ se puede obtener el archivo original de foto/video/audio de WhatsApp específicamente (ver
+  `WhatsAppMediaScanner.kt`), esta limitación de "solo miniatura" sigue aplicando para
+  cualquier OTRA app (ver limitaciones abajo). **v2.26: `copyMediaToAppStorage()` (nueva)**
+  copia el archivo que encontró `WhatsAppMediaScanner` a `filesDir/media/` — el orden de
+  `onNotificationPosted` se cambió para que esto corra DESPUÉS de confirmar wallet/app-match +
+  dedupe (antes podía consumir un archivo sin nunca asociarlo a nada). Si `findNewMedia`
+  devuelve más de un archivo nuevo, el resto genera notificaciones extra propias (antes se
+  perdían). Actualiza el "heartbeat" (`DisplayPreferences.touchHeartbeat`) en cada evento, para
   que la Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)`
   (llamado desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener
   si Android lo mató. **Desde v2.16, también corre el long-polling de Telegram en tiempo

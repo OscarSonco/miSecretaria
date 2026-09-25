@@ -45,7 +45,7 @@ private const val REPORT_MIME = "text/plain"
 // ALERT = aviso remoto de /notificarpantalla: usa la misma pantalla completa/aviso flotante
 // que un pago, pero sin el encabezado "Pago recibido" ni el monto (no es un pago real).
 enum class NotificationKind { PAYMENT, GENERAL, ALERT }
-data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT, val mediaPath: String? = null, val note: String? = null)
+data class WalletNotification(val id: String, val wallet: String, val title: String, val message: String, val receivedAt: String, val kind: NotificationKind = NotificationKind.PAYMENT, val mediaPath: String? = null, val note: String? = null, val mediaType: String? = null)
 
 class MainActivity : ComponentActivity() {
     companion object { private const val REQ_SAVE = 100; private const val REQ_RESTORE = 101 }
@@ -298,7 +298,13 @@ enum class PickerTarget { WALLET, APP }
                         Text(item.message)
                     }
                 }
-                item.mediaPath?.let { path -> ThumbnailImage(path) }
+                item.mediaPath?.let { path ->
+                    when (item.mediaType) {
+                        "audio" -> AudioPlayer(path)
+                        "video" -> VideoOpenButton(path)
+                        else -> ThumbnailImage(path)
+                    }
+                }
                 if (editingNoteId != item.id && !item.note.isNullOrBlank()) {
                     Text("📝 ${item.note}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
@@ -692,5 +698,47 @@ enum class PickerTarget { WALLET, APP }
         Spacer(Modifier.height(6.dp))
         Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp))
     }
+}
+/** Reproduce/detiene una nota de voz u otro audio de WhatsApp ya copiado a almacenamiento
+ * propio. Sin barra de progreso ni pausa real — para una nota de voz corta alcanza con
+ * reproducir/detener. */
+@Composable private fun AudioPlayer(path: String) {
+    var player by remember(path) { mutableStateOf<android.media.MediaPlayer?>(null) }
+    DisposableEffect(path) {
+        onDispose { player?.release(); player = null }
+    }
+    val isPlaying = player != null
+    Spacer(Modifier.height(4.dp))
+    TextButton(onClick = {
+        if (isPlaying) {
+            player?.release()
+            player = null
+        } else {
+            val mp = android.media.MediaPlayer()
+            runCatching {
+                mp.setDataSource(path)
+                mp.setOnCompletionListener { player = null }
+                mp.prepare()
+                mp.start()
+                player = mp
+            }.onFailure { player = null }
+        }
+    }) { Text(if (isPlaying) stringResource(R.string.action_stop_audio) else stringResource(R.string.action_play_audio)) }
+}
+/** Abre un video de WhatsApp ya copiado a almacenamiento propio con el reproductor de video
+ * que el usuario tenga instalado (vía FileProvider, no se expone la ruta de archivo cruda). */
+@Composable private fun VideoOpenButton(path: String) {
+    val context = LocalContext.current
+    Spacer(Modifier.height(4.dp))
+    TextButton(onClick = {
+        runCatching {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "video/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+        }
+    }) { Text(stringResource(R.string.action_play_video)) }
 }
 private fun isNotificationAccessEnabled(c: Context): Boolean { val e = Settings.Secure.getString(c.contentResolver, "enabled_notification_listeners") ?: return false; val component = ComponentName(c, WalletNotificationListener::class.java).flattenToString(); return e.split(':').any { it.equals(component, true) } }

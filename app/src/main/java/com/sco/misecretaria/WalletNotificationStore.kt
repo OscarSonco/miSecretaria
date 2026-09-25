@@ -3,6 +3,7 @@ package com.sco.misecretaria
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -100,8 +101,13 @@ object WalletNotificationStore {
     @Synchronized
     fun restoreEverything() = restoreMany(trash().map { it.id }.toSet())
 
+    /** Vacía la papelera de verdad (borrado permanente) — a diferencia de mover a la papelera,
+     * esto SÍ borra del disco las copias de fotos/audio/video que se hayan guardado
+     * (`filesDir/media/`, ver `WalletNotificationListener.copyMediaToAppStorage`), para no
+     * acumular archivos huérfanos para siempre. */
     @Synchronized
     fun emptyTrash() {
+        trash().forEach { item -> item.mediaPath?.let { runCatching { File(it).delete() } } }
         save(TRASH, emptyList())
     }
 
@@ -174,6 +180,7 @@ object WalletNotificationStore {
                     .put("kind", it.kind.name)
                     .put("mediaPath", it.mediaPath ?: JSONObject.NULL)
                     .put("note", it.note ?: JSONObject.NULL)
+                    .put("mediaType", it.mediaType ?: JSONObject.NULL)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -202,7 +209,8 @@ object WalletNotificationStore {
                             receivedAt = item.getString("receivedAt"),
                             kind = runCatching { NotificationKind.valueOf(item.optString("kind", NotificationKind.PAYMENT.name)) }.getOrDefault(NotificationKind.PAYMENT),
                             mediaPath = item.optString("mediaPath", null)?.takeIf { it.isNotBlank() && it != "null" },
-                            note = item.optString("note", null)?.takeIf { it.isNotBlank() && it != "null" }
+                            note = item.optString("note", null)?.takeIf { it.isNotBlank() && it != "null" },
+                            mediaType = item.optString("mediaType", null)?.takeIf { it.isNotBlank() && it != "null" }
                         )
                     )
                 }

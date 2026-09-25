@@ -52,8 +52,11 @@ notificaciones cuando pasa mucho tiempo sin usarla.
 
 - **Encendido/Apagado**: en la pantalla principal, el botón grande activa o desactiva por
   completo la escucha de notificaciones (útil si quieres pausarla un rato sin desinstalar).
-- **Historial**: lista de todo lo detectado, con filtro por billetera/app arriba. Cada tarjeta
-  tiene:
+- **Historial**: lista de todo lo detectado, con filtro por billetera/app arriba. Si un mensaje
+  de WhatsApp traía una foto, audio o video nuevo, la app busca el archivo real y lo muestra
+  ahí mismo — la foto se ve completa, el audio tiene un botón para reproducirlo, y el video un
+  botón para abrirlo con tu reproductor de video. Requiere el permiso "Acceso a todos los
+  archivos" (ver tabla de permisos arriba). Cada tarjeta tiene:
   - **📋 Copiar**: copia el texto de esa notificación al portapapeles (para pegarlo donde
     quieras).
   - **📌 Fijar / 📌 Quitar fijado**: fija hasta 2 notificaciones a la vez para que aparezcan
@@ -120,13 +123,11 @@ un APK nuevo — este botón no encontrará nada porque son builds distintas.
 
 ## Funciones en desarrollo (todavía no completas)
 
-- **Medios nuevos de WhatsApp** (fotos/audio/video que te mandan): la app ya detecta cuándo
-  WhatsApp anuncia un medio nuevo y busca el archivo real, pero por ahora solo lo registra en
-  el log de depuración — todavía no lo reproduce, no guarda copia ni lo reenvía por Telegram.
-  Fotos y video ya funcionaban; desde esta versión también busca el audio (notas de voz) leyendo
-  la carpeta de WhatsApp directamente en vez de depender del índice de Android (que no
-  detectaba las notas de voz de forma confiable) — requiere otorgar el permiso "Acceso a todos
-  los archivos" de la tabla de arriba. Sin confirmar todavía en un teléfono real.
+- **Medios nuevos de WhatsApp** (fotos/audio/video que te mandan): ya se detectan, se guarda
+  una copia propia (sobrevive aunque el remitente la borre) y se muestran/reproducen en el
+  Historial (ver arriba) — sin confirmar todavía en un teléfono real. Lo que falta: reenviar
+  automáticamente estos medios por Telegram, y un checklist en Configuración de qué tipos
+  guardar/reenviar/reproducir.
 - La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real
   instalada para español (usa "Instalar más voces" en Configuración para revisar qué voces
   trae tu equipo).
