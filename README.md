@@ -42,7 +42,7 @@ En Configuración vas a ver una fila por cada permiso, en **verde** si ya está 
 |---|---|
 | Acceso a notificaciones | Es el permiso principal — sin él la app no puede leer ninguna notificación. |
 | Mostrar sobre otras aplicaciones | Necesario para el aviso flotante ("Pantalla de aviso") cuando llega un pago. |
-| Acceso a todos los archivos (fotos/audio/video de WhatsApp) | Permite buscar la foto/video/audio real cuando WhatsApp avisa que llegó uno nuevo (función en desarrollo, ver más abajo). Este permiso abre una pantalla especial de Android ("Acceso a todos los archivos") en vez del diálogo normal — es más fuerte que un permiso típico porque necesita leer las carpetas de otra app directamente. |
+| Acceso a todos los archivos (fotos/audio/video/documentos de WhatsApp) | Permite buscar la foto/video/audio/documento real cuando WhatsApp avisa que llegó uno nuevo (función en desarrollo, ver más abajo). Este permiso abre una pantalla especial de Android ("Acceso a todos los archivos") en vez del diálogo normal — es más fuerte que un permiso típico porque necesita leer las carpetas de otra app directamente. |
 
 Además, en Android puede que tengas que ir a Ajustes del sistema → Batería → "Sin
 restricciones" para miSecretaria, para que el teléfono no la duerma y deje de escuchar
@@ -53,10 +53,13 @@ notificaciones cuando pasa mucho tiempo sin usarla.
 - **Encendido/Apagado**: en la pantalla principal, el botón grande activa o desactiva por
   completo la escucha de notificaciones (útil si quieres pausarla un rato sin desinstalar).
 - **Historial**: lista de todo lo detectado, con filtro por billetera/app arriba. Si un mensaje
-  de WhatsApp traía una foto, audio o video nuevo, la app busca el archivo real y lo muestra
-  ahí mismo — la foto se ve completa, el audio tiene un botón para reproducirlo, y el video un
-  botón para abrirlo con tu reproductor de video. Requiere el permiso "Acceso a todos los
-  archivos" (ver tabla de permisos arriba). Cada tarjeta tiene:
+  de WhatsApp traía una foto, audio, video o documento (PDF, Word, Excel, etc.) nuevo, la app
+  busca el archivo real y lo muestra ahí mismo — la foto se ve completa, el audio tiene un
+  botón para reproducirlo, el video un botón para abrirlo con tu reproductor de video, y el
+  documento un botón "📄 Abrir documento" para abrirlo con la app correspondiente (lector de
+  PDF, Word, etc.). Útil, por ejemplo, para que una sucursal siempre tenga una copia de una
+  factura enviada por WhatsApp aunque el remitente la borre después. Requiere el permiso
+  "Acceso a todos los archivos" (ver tabla de permisos arriba). Cada tarjeta tiene:
   - **📋 Copiar**: copia el texto de esa notificación al portapapeles (para pegarlo donde
     quieras).
   - **📌 Fijar / 📌 Quitar fijado**: fija hasta 2 notificaciones a la vez para que aparezcan
@@ -123,9 +126,10 @@ un APK nuevo — este botón no encontrará nada porque son builds distintas.
 
 ## Funciones en desarrollo (todavía no completas)
 
-- **Medios nuevos de WhatsApp** (fotos/audio/video que te mandan): ya se detectan, se guarda
-  una copia propia (sobrevive aunque el remitente la borre) y se muestran/reproducen en el
-  Historial (ver arriba) — sin confirmar todavía en un teléfono real. Lo que falta: reenviar
+- **Medios nuevos de WhatsApp** (fotos/audio/video/documentos que te mandan): ya se detectan,
+  se guarda una copia propia (sobrevive aunque el remitente la borre) y se muestran/reproducen
+  en el Historial (ver arriba) — fotos/audio/video ya confirmados en un teléfono real;
+  documentos (PDF/Word/Excel) recién agregados, sin confirmar todavía. Lo que falta: reenviar
   automáticamente estos medios por Telegram, y un checklist en Configuración de qué tipos
   guardar/reenviar/reproducir.
 - La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real

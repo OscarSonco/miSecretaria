@@ -41,6 +41,12 @@ import java.util.Locale
  * falsos positivos graves: un mensaje de TEXTO que solo menciona la palabra "audio" en una
  * frase normal disparaba el escaneo y podía robarle a otra conversación una foto/video/audio
  * ajeno que llegó casi al mismo tiempo (dedupe por ruta = solo un dueño posible por archivo).
+ *
+ * **v2.30:** documentos (PDF, Word, etc.) — pedido explícito del usuario. A diferencia de
+ * foto/video/nota de voz, la notificación de un documento NO tiene una frase fija: WhatsApp
+ * pone el EMOJI 📄 seguido del nombre real del archivo (confirmado en vivo:
+ * "📄 HOJA DE VIDA - LUIS GUSTAVO BECERRA_2026.docx"), así que no hay frase que buscar — se
+ * detecta por la presencia del emoji 📄 en vez de una palabra/frase.
  */
 object WhatsAppMediaScanner {
     private const val PREFS = "whatsapp_media_scanner_v1"
@@ -61,6 +67,10 @@ object WhatsAppMediaScanner {
         "mensaje de voz", "voice message"
     )
 
+    // v2.30: los documentos no tienen frase fija (WhatsApp pone el nombre real del archivo),
+    // así que se detectan por el emoji que SÍ es fijo en la notificación.
+    private const val DOCUMENT_EMOJI = "📄"
+
     // Por pedido explícito del usuario: los stickers (y GIFs) no cuentan como medio a detectar.
     private val EXCLUDED_KEYWORDS = listOf("sticker", "gif")
 
@@ -74,6 +84,7 @@ object WhatsAppMediaScanner {
         "image" to "WhatsApp Images",
         "video" to "WhatsApp Video",
         "audio" to "WhatsApp Voice Notes",
+        "document" to "WhatsApp Documents",
     )
 
     // Raíces de WhatsApp SIN el "/Media" final — porque desde que WhatsApp soporta varias
@@ -157,8 +168,10 @@ object WhatsAppMediaScanner {
     fun isWhatsApp(packageName: String) = packageName in WHATSAPP_PACKAGES
 
     fun looksLikeNewMedia(title: String, text: String): Boolean {
-        val combined = "$title $text".lowercase(Locale.ROOT)
+        val raw = "$title $text"
+        val combined = raw.lowercase(Locale.ROOT)
         if (EXCLUDED_KEYWORDS.any { combined.contains(it) }) return false
+        if (raw.contains(DOCUMENT_EMOJI)) return true
         return MEDIA_KEYWORDS.any { combined.contains(it) }
     }
 

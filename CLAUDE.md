@@ -4,18 +4,18 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-25)
 
-**2.19 a 2.28 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+**2.19 a 2.29 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
 `release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
 que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
 nuevo. **Desde 2.27, con el teléfono en casa conectado por USB, Claude también instala directo
-por ADB** (regla nueva, ver más abajo) — 2.27, 2.28 y 2.29 ya quedaron instaladas así. **2.24
-se probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales con la ruta
-`accounts/1009/Media/...`). **2.28 arregló el audio (subcarpetas por semana) pero el usuario
-reportó "está peor" — causa real: `MEDIA_KEYWORDS` con palabras sueltas ("audio"/"foto")
-producía falsos positivos que le ROBABAN medios a mensajes de texto normales que solo
-mencionaban esas palabras (ver "Tanda v2.29", que lo arregla con frases exactas).** Código en
-disco = v2.29 (`versionCode=2029` — **AÚN NO publicada**, falta correr
-`release.sh` otra vez). **2.23 en particular sube el perfil de permisos de la app para TODAS
+por ADB** (regla nueva, ver más abajo) — 2.27 a 2.30 ya quedaron instaladas así. **2.24 se
+probó en vivo y SÍ funcionó** (fotos reales con la ruta `accounts/1009/Media/...`). **v2.29 se
+probó en vivo y confirmó que el robo de medios entre mensajes ya no pasa** (ver "Tanda v2.29").
+**v2.30 agrega documentos (PDF/Word/Excel) — pedido explícito del usuario para uso real de
+negocio: respaldo de facturas que un empleado de sucursal podría borrar por error o a
+propósito.** Código en disco = v2.30 (`versionCode=2030`, ver "Tanda v2.30" —
+**AÚN NO publicada**, falta correr `release.sh` otra vez). **2.23 en particular sube el
+perfil de permisos de la app para TODAS
 las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
 usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
 (borrar/fijar/copiar/nota + centralización de textos) salió a producción SIN haberse probado en
@@ -83,6 +83,32 @@ el usuario:
   acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.30 (2026-09-25) — documentos (PDF/Word/Excel), pedido con caso de uso de negocio real
+
+Pedido explícito del usuario, con el motivo dicho claramente: *"Necesito esto para mis
+sucursales, para que cuando alguno de mis empleados borre alguna factura yo tener respaldo"* —
+o sea, el mismo propósito de todo el Paso 2 (copiar a almacenamiento propio para sobrevivir un
+borrado), aplicado ahora a documentos además de foto/audio/video.
+
+- ✅ **Detección distinta a los demás tipos:** foto/video/nota de voz tienen una FRASE fija que
+  genera WhatsApp ("Envió una foto.", etc. — ver v2.29). Los documentos NO — WhatsApp pone el
+  emoji 📄 seguido del **nombre real del archivo** (confirmado en vivo:
+  `"📄 HOJA DE VIDA - LUIS GUSTAVO BECERRA_2026.docx"`), que cambia siempre. Por eso
+  `looksLikeNewMedia()` ahora también revisa la presencia del emoji `📄` (`DOCUMENT_EMOJI`) en
+  vez de una frase — mismo principio de "usar la señal más específica posible" de v2.29, solo
+  que aquí la señal específica es un emoji en vez de una frase.
+- ✅ **`WA_SUBDIRS` gana `"document" to "WhatsApp Documents"`** — misma carpeta real
+  confirmada por `adb shell ls` (`.../Media/WhatsApp Documents/`, archivos sueltos, sin
+  subcarpetas por fecha como las notas de voz — igual que foto/video). Reutiliza toda la
+  infraestructura ya existente (`mediaDirsFor`, `filesIn`, reintentos, dedupe) sin cambios.
+- ✅ **`DocumentOpenButton` (nuevo, `MainActivity.kt`)** — botón "📄 Abrir documento" que abre
+  el archivo copiado con la app que el usuario tenga instalada para ese tipo (PDF/Word/Excel/
+  lo que sea), adivinando el tipo MIME por la extensión (`MimeTypeMap`) y usando `FileProvider`
+  (igual que `VideoOpenButton`) — nunca se expone la ruta cruda a otra app.
+- **Sin probar en el teléfono todavía** — recién se instaló por ADB. Falta que llegue un
+  documento nuevo y confirmar que aparece con el botón "Abrir documento" y que se abre bien
+  con la app correcta (PDF con lector de PDF, .docx con Word/lo que tenga, etc.).
 
 ### Tanda v2.29 (2026-09-25) — v2.28 sí encontró el audio, pero empezó a robar medios ajenos
 
@@ -925,17 +951,16 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2029`, `versionName="2.29"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2030`, `versionName="2.30"` (ver `app/build.gradle.kts`,
   subida 2026-09-25). Compila limpio, build Interna generada, **YA INSTALADA por ADB en el
   teléfono del usuario** (`adb install -r`, nueva regla — ver arriba) pero **AÚN NO publicada
-  en GitHub/Firebase** — v2.28 sigue siendo lo que ven las sucursales vía "Buscar
+  en GitHub/Firebase** — v2.29 sigue siendo lo que ven las sucursales vía "Buscar
   actualización" hasta que se corra `release.sh`. **v2.24 ya se confirmó en vivo** (fotos
-  reales encontradas con la ruta `accounts/1009/...`); **v2.28 arregló el audio (confirmado:
-  una nota de voz real se encontró bien) pero introdujo un bug distinto — le robaba medios a
-  mensajes de texto que solo mencionaban la palabra "foto"/"audio"/"video" — que v2.29 arregla
-  con frases exactas en vez de palabras sueltas (ver "Tanda v2.29").** **Pendiente de
-  verificar en vivo:** si v2.29 elimina el problema del robo de medios (recién se instaló), y
-  el escaneo genérico de respaldo de v2.25 (nunca se
+  reales); **v2.29 ya se confirmó en vivo** (el robo de medios entre mensajes ya no pasa,
+  comparando el historial real antes/después de instalarla). **v2.30 (documentos) es la más
+  nueva, sin probar todavía.** **Pendiente de verificar en vivo:** que un documento nuevo (PDF/
+  Word/Excel) aparezca con el botón "Abrir documento" y se abra bien (v2.30), y el escaneo
+  genérico de respaldo de v2.25 (nunca se
   ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,

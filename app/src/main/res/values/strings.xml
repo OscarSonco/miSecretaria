@@ -16,6 +16,7 @@
     <string name="action_play_audio">▶ Reproducir audio</string>
     <string name="action_stop_audio">⏸ Detener audio</string>
     <string name="action_play_video">▶ Reproducir video</string>
+    <string name="action_open_document">📄 Abrir documento</string>
     <string name="action_unpin">📌 Quitar fijado</string>
     <string name="toast_copied">Copiado al portapapeles</string>
     <string name="pin_limit_reached">Ya tienes %1$d notificaciones fijadas como máximo — quita una primero</string>

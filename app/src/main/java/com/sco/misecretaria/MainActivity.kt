@@ -302,6 +302,7 @@ enum class PickerTarget { WALLET, APP }
                     when (item.mediaType) {
                         "audio" -> AudioPlayer(path)
                         "video" -> VideoOpenButton(path)
+                        "document" -> DocumentOpenButton(path)
                         else -> ThumbnailImage(path)
                     }
                 }
@@ -740,5 +741,24 @@ enum class PickerTarget { WALLET, APP }
             context.startActivity(intent)
         }
     }) { Text(stringResource(R.string.action_play_video)) }
+}
+/** Abre un documento de WhatsApp (PDF, Word, Excel, etc.) ya copiado a almacenamiento propio
+ * con la app que el usuario tenga instalada para ese tipo de archivo — el tipo se adivina por
+ * la extensión (`MimeTypeMap`); si no se reconoce, se deja que el selector de Android decida. */
+@Composable private fun DocumentOpenButton(path: String) {
+    val context = LocalContext.current
+    Spacer(Modifier.height(4.dp))
+    TextButton(onClick = {
+        runCatching {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))
+            val ext = File(path).extension.lowercase()
+            val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+        }
+    }) { Text(stringResource(R.string.action_open_document)) }
 }
 private fun isNotificationAccessEnabled(c: Context): Boolean { val e = Settings.Secure.getString(c.contentResolver, "enabled_notification_listeners") ?: return false; val component = ComponentName(c, WalletNotificationListener::class.java).flattenToString(); return e.split(':').any { it.equals(component, true) } }
