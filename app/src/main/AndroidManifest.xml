@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Lectura directa de las carpetas de medios de WhatsApp (fotos/video/notas de voz):
+         MediaStore.Audio no indexa las notas de voz de forma confiable (confirmado en vivo,
+         2026-09-24) — se lee el archivo directo del disco en su lugar, como hace SoncoBot. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
     <queries>
         <intent>

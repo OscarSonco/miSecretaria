@@ -42,7 +42,7 @@ En Configuración vas a ver una fila por cada permiso, en **verde** si ya está 
 |---|---|
 | Acceso a notificaciones | Es el permiso principal — sin él la app no puede leer ninguna notificación. |
 | Mostrar sobre otras aplicaciones | Necesario para el aviso flotante ("Pantalla de aviso") cuando llega un pago. |
-| Acceso a medios (fotos/audio/video de WhatsApp) | Permite buscar la foto/video/audio real cuando WhatsApp avisa que llegó uno nuevo (función en desarrollo, ver más abajo). |
+| Acceso a todos los archivos (fotos/audio/video de WhatsApp) | Permite buscar la foto/video/audio real cuando WhatsApp avisa que llegó uno nuevo (función en desarrollo, ver más abajo). Este permiso abre una pantalla especial de Android ("Acceso a todos los archivos") en vez del diálogo normal — es más fuerte que un permiso típico porque necesita leer las carpetas de otra app directamente. |
 
 Además, en Android puede que tengas que ir a Ajustes del sistema → Batería → "Sin
 restricciones" para miSecretaria, para que el teléfono no la duerma y deje de escuchar
@@ -123,6 +123,10 @@ un APK nuevo — este botón no encontrará nada porque son builds distintas.
 - **Medios nuevos de WhatsApp** (fotos/audio/video que te mandan): la app ya detecta cuándo
   WhatsApp anuncia un medio nuevo y busca el archivo real, pero por ahora solo lo registra en
   el log de depuración — todavía no lo reproduce, no guarda copia ni lo reenvía por Telegram.
+  Fotos y video ya funcionaban; desde esta versión también busca el audio (notas de voz) leyendo
+  la carpeta de WhatsApp directamente en vez de depender del índice de Android (que no
+  detectaba las notas de voz de forma confiable) — requiere otorgar el permiso "Acceso a todos
+  los archivos" de la tabla de arriba. Sin confirmar todavía en un teléfono real.
 - La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real
   instalada para español (usa "Instalar más voces" en Configuración para revisar qué voces
   trae tu equipo).

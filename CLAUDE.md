@@ -4,12 +4,16 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-24)
 
-Código en disco = v2.22 (`versionCode=2022`) — el usuario publicó hasta 2.19 (`gh release list`
+Código en disco = v2.23 (`versionCode=2023`) — el usuario publicó hasta 2.19 (`gh release list`
 confirma `v2.19` como "Latest" en ese momento, y es lo que sigue instalado en su teléfono real).
 **2.20 (Papelera + colores + botón Volver), 2.21 (fix del bug real "el bot dejó de responder
-por ~13h sin crashear") y 2.22 (`/panelon`/`/paneloff` agregados al `/help`) están compiladas
-con build Interna generada, pero AÚN NO publicadas** — falta que el usuario corra
-`release.sh`/el `.desktop` cuando quiera cerrarlas. **Importante:** la tanda v2.19 completa
+por ~13h sin crashear"), 2.22 (`/panelon`/`/paneloff` agregados al `/help`) y 2.23 (medios de
+WhatsApp por lectura directa de archivo, `MANAGE_EXTERNAL_STORAGE`) están compiladas con build
+Interna generada, pero AÚN NO publicadas** — falta que el usuario corra `release.sh`/el
+`.desktop` cuando quiera cerrarlas. **2.23 en particular sube el perfil de permisos de la app
+para TODAS las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) —
+conviene que el usuario avise al personal antes de repartir esta versión, no solo publicarla
+sin aviso. **Importante:** la tanda v2.19 completa
 (borrar/fijar/copiar/nota + centralización de textos) salió a producción SIN haberse probado en
 vivo — la próxima sesión debe priorizar confirmar con el usuario que se ve/funciona bien en el
 teléfono real, no asumir que "recién compilado" significa "sin probar aún" como en tandas
@@ -32,6 +36,49 @@ el usuario:
 - **Toda tanda de código, aunque sea chica, necesita su propio bump de versión** — ver
   [[feedback-always-bump-version]] (lección del bug de "Sincronizar ahora" invisible: un fix
   sin subir versión es indistinguible del build ya publicado).
+
+### Tanda v2.23 (2026-09-24) — medios de WhatsApp: lectura directa de archivo, ya no MediaStore
+
+Pedido explícito del usuario: revisar cómo lo resolvió su otro proyecto,
+`~/Documents/SoncoBot` (app Android de monitoreo remoto más amplio — ubicación, contactos,
+cámara, etc.; NO se copió nada de eso, solo la pieza de medios de WhatsApp) y aplicar la misma
+solución aquí. El usuario confirmó explícitamente que acepta el permiso más fuerte que esto
+requiere.
+
+- ✅ **`WhatsAppMediaScanner.kt` reescrito** — ya NO consulta `MediaStore.Images/Video/Audio`
+  (que confirmamos no indexa audio de forma confiable, ver arriba). Ahora lee directo las
+  carpetas reales de WhatsApp con `java.io.File.listFiles()`, mismo patrón que
+  `SoncoBot/app/.../WhatsAppWatcher.kt`:
+  - `Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images|WhatsApp Video|WhatsApp Voice Notes`
+  - `Android/media/com.whatsapp.w4b/WhatsApp Business/Media/...` (WhatsApp Business)
+  - `WhatsApp/Media/...` (ruta legacy, versiones viejas de Android/WhatsApp)
+  - Sigue filtrando por ventana de tiempo alrededor del `postTime` de la notificación (no
+    recorre el histórico) y dedupea por ruta ya vista (`SharedPreferences`, tope 200) — mismo
+    diseño de siempre, solo cambió CÓMO se busca el archivo, no cuándo ni cuánto.
+  - `looksLikeNewMedia()` (las palabras clave "foto"/"audio"/"mensaje de voz"/etc.) se mantiene
+    igual — sigue decidiendo CUÁNDO vale la pena escanear las carpetas (evita escanear en cada
+    notificación de WhatsApp, la mayoría texto normal).
+  - `MediaMatch` cambió de `uri: Uri` (content://) a `path: String` (ruta real de archivo) —
+    ajustado el único call site en `WalletNotificationListener.onNotificationPosted`.
+- ✅ **Permiso nuevo: `MANAGE_EXTERNAL_STORAGE`** ("Acceso a todos los archivos",
+  `AndroidManifest.xml`, con `tools:ignore="ScopedStorage"` igual que SoncoBot) — mucho más
+  fuerte que los `READ_MEDIA_*` anteriores (que se dejan igual, como respaldo en Android <11).
+  No se otorga con un diálogo normal: `hasMediaPermission()` ahora chequea
+  `Environment.isExternalStorageManager()` en Android 11+ (`Build.VERSION_CODES.R`), y el botón
+  "Habilitar" de la fila de permisos en Configuración manda a
+  `Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` (pantalla especial de Ajustes) en
+  vez del selector de permisos de siempre — en Android <11 sigue usando el flujo viejo
+  (`requestMediaPermissions()`).
+  ⚠️ **Impacto en todas las sucursales, no solo en el teléfono del usuario:** cualquier
+  teléfono que actualice a 2.23+ va a ver esta pantalla de "Acceso a todos los archivos" al
+  intentar habilitar el permiso — es más llamativa que los permisos anteriores. El usuario ya
+  aceptó este trade-off explícitamente (2026-09-24) a cambio de que fotos/video/audio de
+  WhatsApp se detecten de forma confiable, los tres por igual.
+- **Sin probar en el teléfono todavía** — ni el permiso nuevo (la pantalla especial de Ajustes,
+  el flujo `isExternalStorageManager()`), ni que la detección de audio ahora sí encuentre el
+  archivo real. Cuando se pruebe, sería bueno confirmar con un log igual de claro al que ya
+  sirvió para diagnosticar esto la vez pasada (mandar una foto y un audio casi al mismo tiempo,
+  revisar que ambos salgan como "Medio nuevo de WhatsApp" en el log).
 
 ### Tanda v2.22 (2026-09-24) — `/panelon`/`/paneloff` faltaban en el `/help`
 
@@ -487,6 +534,13 @@ Verificado EN VIVO vía el log interno del teléfono (`run-as ... cat files/miSe
   en el "Audio" de MediaStore de forma confiable. **Falta confirmar mandando una nota de voz de
   prueba ahora mismo y volviendo a consultar MediaStore** — esto decide si vale la pena construir
   2d-2h (cola de reproducción) para audio, o si hay que buscar una vía alternativa solo para ese tipo.
+  **✅ CONFIRMADO 2026-09-24 (ver "Tanda v2.22+" / sección de WhatsApp media más abajo): esto
+  era exactamente el problema.** El detector de palabra clave funciona perfecto para audio
+  (WhatsApp manda "🎤 Mensaje de voz (0:16)", que sí matchea), pero `MediaStore.Audio` no
+  indexa el archivo — se confirmó con una foto y un audio llegados casi al mismo segundo: la
+  foto se encontró en `MediaStore.Images`, el audio no se encontró en `MediaStore.Audio`. No es
+  un bug de código, es una limitación real de Android/WhatsApp con archivos `.opus` — ver "Qué
+  hacer con el audio (decisión pendiente)" en la sección de limitaciones conocidas.
 
 | Pedido del usuario | Estado |
 |---|---|
@@ -649,12 +703,14 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2022`, `versionName="2.22"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2023`, `versionName="2.23"` (ver `app/build.gradle.kts`,
   subida 2026-09-24). Compila limpio en el Debian, build Interna generada. **NO publicada
   todavía** — la v2.19 sigue siendo la última publicada (`gh release list`/`update.json`) y lo
-  instalado en el teléfono real del usuario. **Pendiente de verificar en vivo:** permiso de
-  medios + detección real de foto/audio/video de WhatsApp (Paso 2), guardar/probar el bot de
-  Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
+  instalado en el teléfono real del usuario. **Pendiente de verificar en vivo:** el permiso
+  nuevo `MANAGE_EXTERNAL_STORAGE` + detección real de foto/audio/video de WhatsApp por lectura
+  directa de archivo (Tanda v2.23, ver esa sección — el diseño anterior con `MediaStore` SÍ se
+  probó y confirmó roto para audio; este reemplazo aún no se probó en vivo), guardar/probar el
+  bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
   (`withTimeout` en el long-poll de Telegram — corrige un bug real ya confirmado en vivo: el
@@ -717,10 +773,18 @@ Pedido explícito del usuario: poder ver localmente lo que hay en `miSecretaria.
   mismo patrón, y mismo motivo, que el `web_server.py` de `CotizacionDelDolar`: puede correr al
   mismo tiempo que `csv_importer.py` sin arriesgar bloquear/corromper la base). Muestra tarjetas
   con el total y el desglose por sucursal, y una tabla con las últimas 200 notificaciones.
-- ✅ **`templates/miSecretaria.html`** (nuevo) — la plantilla Jinja2 que pidió el usuario por su
-  nombre exacto. Diseño propio (no Bootstrap/CDN — todo el CSS es inline, cero dependencias
-  externas): tarjetas de métricas en azul (`AccentBlue`, para que combine con la app) y una
-  tabla con scroll propio. Colores por tipo: `PAYMENT` en verde, `ALERT` en rojo.
+- ✅ **`miSecretaria.html`** (nuevo, **en la raíz del proyecto** — se movió ahí desde
+  `templates/miSecretaria.html` el 2026-09-24 a pedido explícito del usuario: quería el archivo
+  visible junto a `miSecretaria.db`/`miSecretaria.log`, exista o no el servidor prendido, en
+  vez de escondido en una subcarpeta por convención de Flask. `web_server.py` ahora usa
+  `Flask(__name__, template_folder=str(BASE_DIR))` — la raíz del proyecto sirve de
+  `template_folder`). Diseño propio (no Bootstrap/CDN — todo el CSS es inline, cero
+  dependencias externas): tarjetas de métricas en azul (`AccentBlue`, para que combine con la
+  app) y una tabla con scroll propio. Colores por tipo: `PAYMENT` en verde, `ALERT` en rojo.
+  **Ojo:** el archivo sigue siendo una plantilla Jinja2 (`{{ total }}`, etc.) — abrirlo directo
+  con doble clic (sin pasar por `web_server.py`) muestra las llaves sin rellenar, no datos
+  reales; solo se ve bien visitando `http://localhost:8766` (o la IP de la PC) mientras el
+  servidor está encendido.
 - ✅ **Control por Telegram (`/panelon`, `/paneloff`)** — vive DENTRO de `csv_importer.py`, no
   en un script aparte: como `web_server.py` no puede escucharse a sí mismo para "encenderse"
   (si está apagado no hay nada corriendo que reciba el comando), el que escucha tiene que ser un
@@ -907,12 +971,18 @@ cada exclusión.
   **`remove()` nuevo (2026-09-23):** `WalletConfig.remove(context, name)` / `AppConfig.remove`
   — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
   switch de cada fila en Configuración.
-- `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23) — detección de medios NUEVOS
-  de WhatsApp: `isWhatsApp`/`looksLikeNewMedia` (con exclusión explícita de sticker/GIF) para
-  decidir si vale la pena buscar, `hasMediaPermission` (permisos de medios según SDK) y
-  `findNewMedia` (consulta `MediaStore` Images/Video/Audio en una ventana de tiempo alrededor
-  del `postTime` de la notificación, filtra por ruta que contenga "WhatsApp", y recuerda URIs
-  ya vistas para no repetir ni recorrer el histórico). Llamado desde
+- `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23**) —
+  detección de medios NUEVOS de WhatsApp: `isWhatsApp`/`looksLikeNewMedia` (con exclusión
+  explícita de sticker/GIF) para decidir si vale la pena buscar, `hasMediaPermission`
+  (`Environment.isExternalStorageManager()` en Android 11+, permiso clásico en versiones
+  viejas) y `findNewMedia`. **Desde v2.23, `findNewMedia` ya NO usa `MediaStore`** (confirmado
+  que `MediaStore.Audio` no indexa notas de voz de forma confiable) — lee directo con
+  `java.io.File.listFiles()` las carpetas reales de WhatsApp
+  (`Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images|Video|Voice Notes`, + WhatsApp
+  Business y la ruta legacy), mismo patrón que `SoncoBot/WhatsAppWatcher.kt`. Sigue filtrando
+  por ventana de tiempo alrededor del `postTime` y recordando rutas ya vistas (no `MediaStore`
+  URIs) para no repetir ni recorrer el histórico. `MediaMatch.uri` pasó a ser `MediaMatch.path`
+  (`String`, ruta real del archivo). Llamado desde
   `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que encuentra
   (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h, pendiente).
 - `TelegramClient.kt` — cliente mínimo (sin librerías) de la API HTTP de Telegram Bot:
@@ -1187,6 +1257,21 @@ quitaron del repo (recuperables del historial de git si hiciera falta):
      dejar audio/video fuera de esta función.
   Tampoco está implementado el checklist de "qué tipo de archivo nuevo guardar" ni el
   reenvío automático de esos medios al bot de Telegram — depende de resolver lo anterior.
+  **Actualización 2026-09-24 — estado real confirmado con uso en vivo (no solo teoría):** la
+  opción b (`WhatsAppMediaScanner.kt`) SÍ está implementada (fase 1, solo logging) y **SÍ
+  funciona para fotos y video** — confirmado con capturas de pantalla del usuario y el log del
+  teléfono: dos fotos reales detectadas y encontradas en `MediaStore.Images` con su ruta y
+  nombre correctos. **Para audio (notas de voz), NO funciona — confirmado, no es una duda ya**:
+  la notificación de WhatsApp para un audio SÍ se detecta bien por palabra clave ("🎤 Mensaje de
+  voz (0:16)" matchea con `MEDIA_KEYWORDS`), pero el archivo `.opus` nunca aparece en
+  `MediaStore.Audio` — probado con una foto y un audio llegados casi al mismo segundo (mismo
+  chat, mismo minuto): la foto sí se encontró, el audio no. Es una limitación real de cómo
+  Android indexa (o no indexa) archivos de audio de apps de terceros, no un bug de
+  `WhatsAppMediaScanner`/`WalletNotificationListener`. **✅ RESUELTO en v2.23 (ver "Tanda
+  v2.23" más abajo):** en vez de perseguir MediaStore, se lee directo el archivo del disco —
+  igual que ya lo tenía resuelto el proyecto hermano `SoncoBot`
+  (`~/Documents/SoncoBot/app/.../WhatsAppWatcher.kt`, revisado a pedido del usuario). Esto
+  aplica a fotos, video Y audio por igual — ya no hace falta distinguir "esto sí, esto no".
 - **Voz de Varón:** puede seguir sonando parecida a mujer en teléfonos cuyo motor TTS no
   tenga una voz masculina real instalada para español — en ese caso cae al respaldo de
   pitch bajo (0.48), que tiene un límite físico de cuánto puede "engrosar" una voz sintética

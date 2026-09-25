@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Dashboard de solo lectura de miSecretaria.db (plantilla: templates/miSecretaria.html).
+"""Dashboard de solo lectura de miSecretaria.db (plantilla: miSecretaria.html, en la raíz del
+proyecto — el archivo existe ahí siempre, prendido o apagado el servidor; solo que abrirlo
+directo con doble clic muestra las llaves `{{ ... }}` sin rellenar, porque es una plantilla
+Jinja2, no HTML plano — hay que verlo a través de este servidor, no como archivo suelto).
 
 Se enciende/apaga con /panelon y /paneloff desde Telegram — ver csv_importer.py, que es quien
 escucha esos comandos y lanza/mata este proceso (este script NO se conecta solo a Telegram,
@@ -18,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "miSecretaria.db"
 PORT = 8766
 
-app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
+app = Flask(__name__, template_folder=str(BASE_DIR))
 
 
 def query_db() -> dict:

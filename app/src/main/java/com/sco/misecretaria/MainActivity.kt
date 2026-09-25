@@ -531,7 +531,16 @@ enum class PickerTarget { WALLET, APP }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onBack); Text(stringResource(R.string.action_settings), style = MaterialTheme.typography.headlineSmall) }
         PermissionRow(stringResource(R.string.perm_notifications), isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         PermissionRow(stringResource(R.string.perm_overlay), Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
-        PermissionRow(stringResource(R.string.perm_media), WhatsAppMediaScanner.hasMediaPermission(context)) { activity.requestMediaPermissions() }
+        PermissionRow(stringResource(R.string.perm_media), WhatsAppMediaScanner.hasMediaPermission(context)) {
+            // Desde v2.23: en Android 11+ hace falta el permiso especial "Acceso a todos los
+            // archivos" (MANAGE_EXTERNAL_STORAGE) — no un diálogo normal, es una pantalla propia
+            // de Ajustes. En versiones más viejas, el permiso clásico de medios sigue sirviendo.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, android.net.Uri.parse("package:${context.packageName}")))
+            } else {
+                activity.requestMediaPermissions()
+            }
+        }
         Spacer(Modifier.height(10.dp))
         Text(stringResource(R.string.installed_version, AppInfo.VERSION), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

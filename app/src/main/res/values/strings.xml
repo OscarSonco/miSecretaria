@@ -77,7 +77,7 @@
     <!-- Configuración -->
     <string name="perm_notifications">Acceso a notificaciones</string>
     <string name="perm_overlay">Mostrar sobre otras aplicaciones</string>
-    <string name="perm_media">Acceso a medios (fotos/audio/video de WhatsApp)</string>
+    <string name="perm_media">Acceso a todos los archivos (fotos/audio/video de WhatsApp)</string>
     <string name="permission_ok">✓</string>
     <string name="permission_enable">Habilitar</string>
     <string name="installed_version">Versión instalada: %1$s</string>

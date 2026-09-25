@@ -28,8 +28,8 @@ android {
         minSdk = 26
         targetSdk = 37
         // Esquema: versionCode = major*1000 + minor (soporta minor hasta 999, ej. 2.700 -> 2700)
-        versionCode = 2022
-        versionName = "2.22"
+        versionCode = 2023
+        versionName = "2.23"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

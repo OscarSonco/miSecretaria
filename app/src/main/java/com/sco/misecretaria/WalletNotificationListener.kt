@@ -120,7 +120,7 @@ class WalletNotificationListener : NotificationListenerService() {
             if (WhatsAppMediaScanner.hasMediaPermission(this)) {
                 val matches = WhatsAppMediaScanner.findNewMedia(this, statusBarNotification.postTime)
                 if (matches.isNotEmpty()) {
-                    matches.forEach { ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${it.type} \"${it.displayName}\" (${it.uri})") }
+                    matches.forEach { ScoSecretariaLogger.info(this, "Medio nuevo de WhatsApp: ${it.type} \"${it.displayName}\" (${it.path})") }
                 } else {
                     ScoSecretariaLogger.debug(this, "Notificación de medio de WhatsApp sin match todavía en MediaStore (title=\"$title\")")
                 }
