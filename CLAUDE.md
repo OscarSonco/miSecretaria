@@ -4,13 +4,15 @@ Estado del proyecto para continuar el desarrollo desde otra sesión/cuenta de Cl
 
 ## ESTADO ACTUAL (actualizado 2026-09-25)
 
-**2.19 a 2.23 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
+**2.19 a 2.24 SÍ se publicaron** — el usuario le pidió explícitamente a Claude que corriera
 `release.sh` (2026-09-24/25, estando de viaje, sin acceso fácil al Debian) — ya no es un paso
 que solo hace el usuario a mano, aunque sigue siendo la norma salvo que él lo pida así de
-nuevo. Código en disco = v2.24 (`versionCode=2024`, fix de v2.23, ver "Tanda v2.24" — **AÚN NO
-publicada**, falta correr `release.sh` otra vez). **2.23 en particular sube el perfil de
-permisos de la app para TODAS las sucursales** (pide "Acceso a todos los archivos", no un
-permiso normal) — conviene que el usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
+nuevo. **2.24 se probó en vivo y SÍ funcionó** (ver "Tanda v2.24" — encontró dos fotos reales
+con la ruta `accounts/1009/Media/...`). Código en disco = v2.25 (`versionCode=2025`, agrega
+redundancia de escaneo genérico, ver "Tanda v2.25" — **AÚN NO publicada**, falta correr
+`release.sh` otra vez). **2.23 en particular sube el perfil de permisos de la app para TODAS
+las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
+usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
 (borrar/fijar/copiar/nota + centralización de textos) salió a producción SIN haberse probado en
 vivo — la próxima sesión debe priorizar confirmar con el usuario que se ve/funciona bien en el
 teléfono real, no asumir que "recién compilado" significa "sin probar aún" como en tandas
@@ -58,12 +60,48 @@ el usuario:
 - Se corrigió de paso un mensaje de log que había quedado con texto de la versión anterior
   ("...sin match todavía en MediaStore" en `WalletNotificationListener.kt`, aunque ya no se usa
   MediaStore desde v2.23 — solo texto, no afectaba la función).
-- **Sin confirmar todavía si esta ruta con cuenta es la correcta** — se basó en la nota ya
-  documentada de meses atrás, no en una verificación en vivo AHORA MISMO (el teléfono no estaba
-  conectado por ADB al momento del fix, el usuario está de viaje). Falta que el usuario prueba
-  mandando otra foto/audio tras instalar 2.24 y confirmar en el log.
+- **✅ CONFIRMADO en vivo (2026-09-25):** el usuario instaló 2.24, mandó dos fotos reales y el
+  log mostró `Medio nuevo de WhatsApp: image "IMG-20260925-WA0004.jpg"` (y otra más) con la
+  ruta exacta `/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/accounts/1009/Media/WhatsApp Images/...`
+  — la cuenta de este teléfono es la `1009`. El fix de ruta funcionó a la primera. (Audio
+  todavía no se probó con esta versión — solo llegaron fotos en esta prueba — pero usa
+  exactamente el mismo código de `mediaDirsFor()`, así que debería funcionar igual.)
+  ⚠️ El usuario reportó inicialmente "no funcionó" al ver el mismo log — confusión de UX, no un
+  bug: esta función sigue en fase 1 (solo logging), así que no hay NADA visible en el Historial
+  que confirme la detección — hay que revisar el log interno para verlo. Vale la pena tenerlo
+  presente para la próxima fase (2d-2h): en cuanto haya algo visible en pantalla, esta duda se
+  acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.25 (2026-09-25) — redundancia de escaneo genérico (pedido explícito del usuario)
+
+El usuario, tras confirmar que 2.24 sí funcionaba, pidió agregar la red de seguridad que
+`SoncoBot` tiene para esto ("había un botón de escáner, y eso escaneaba todas las variantes")
+para que funcione igual **"en diferentes marcas/modelos de celulares"**, sin depender de que la
+ruta fija (clásica o con cuenta) siga siendo válida en otros teléfonos/versiones de WhatsApp.
+
+- ✅ **`genericWhatsAppBases()` + `findDirsNamed()`** (nuevas) — mismo espíritu que
+  `findWhatsAppDirs()` de `SoncoBot/WhatsAppWatcher.kt`: en vez de asumir una estructura fija,
+  busca cualquier carpeta cuyo nombre contenga "whatsapp" bajo `Android/media/` (cubre
+  `com.whatsapp`, `com.whatsapp.w4b`, clones como GBWhatsApp) o directamente en la raíz del
+  almacenamiento (`/sdcard/WhatsApp`, instalaciones viejas), y dentro de esas, busca
+  recursivamente (tope `GENERIC_SCAN_MAX_DEPTH = 4` niveles, a propósito acotado) una carpeta
+  llamada EXACTAMENTE "WhatsApp Images"/"WhatsApp Video"/"WhatsApp Voice Notes" — sin asumir en
+  qué nivel de anidamiento está (cubre tanto la ruta clásica como la de cuenta, y cualquier otra
+  variante razonable).
+- ✅ **`mediaDirsFor()` ahora combina las dos estrategias, con las rutas conocidas como
+  principal**: primero intenta las rutas fijas (clásica + `accounts/<id>/`, rápido, sin
+  recorrer nada); **solo si eso no encuentra NADA**, cae al escaneo genérico de respaldo. Es
+  exactamente la redundancia pedida — no se reemplazó lo que ya se demostró que funciona, se le
+  agregó un plan B para cuando no aplique (otro fabricante, otra versión de WhatsApp, un clon).
+- El mensaje de diagnóstico ("ninguna carpeta accesible") ahora es más fuerte — solo aparece si
+  FALLAN los dos caminos, ruta conocida y escaneo genérico.
+- **Sin probar en el teléfono todavía** — el camino de rutas conocidas ya está confirmado
+  (Tanda v2.24); el camino genérico de respaldo, al no haberse necesitado en el teléfono de
+  prueba actual, no se ha ejercitado en vivo. Se podría forzar una prueba renombrando
+  temporalmente la carpeta de rutas conocidas, pero no se hizo (no vale la pena arriesgar el
+  WhatsApp real del usuario para probarlo).
 
 ### Tanda v2.23 (2026-09-24) — medios de WhatsApp: lectura directa de archivo, ya no MediaStore
 
@@ -731,14 +769,14 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2024`, `versionName="2.24"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2025`, `versionName="2.25"` (ver `app/build.gradle.kts`,
   subida 2026-09-25). Compila limpio en el Debian, build Interna generada. **NO publicada
-  todavía** — v2.23 SÍ está publicada y es lo último que el usuario puede recibir vía "Buscar
-  actualización" hasta que se publique 2.24 (`gh release list`/`update.json` reflejan v2.23).
-  **Pendiente de verificar en vivo:** el fix de ruta de v2.24 (carpeta con cuenta,
-  `accounts/<id>/Media/...`, ver "Tanda v2.24") — v2.23 SÍ se probó en vivo y se confirmó que
-  no encontraba nada, ese es el bug que arregla 2.24, pero el arreglo en sí aún no se probó.
-  También pendiente: guardar/probar el
+  todavía** — v2.24 SÍ está publicada y es lo último que el usuario puede recibir vía "Buscar
+  actualización" hasta que se publique 2.25 (`gh release list`/`update.json` reflejan v2.24).
+  **v2.24 ya se confirmó en vivo (fotos reales encontradas con la ruta `accounts/1009/...`,
+  ver "Tanda v2.24").** **Pendiente de verificar en vivo:** el escaneo genérico de respaldo de
+  v2.25 (nunca se ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono —
+  ver "Tanda v2.25"). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
@@ -1001,20 +1039,24 @@ cada exclusión.
   — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
   switch de cada fila en Configuración.
 - `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23, ruta
-  corregida v2.24**) — detección de medios NUEVOS de WhatsApp: `isWhatsApp`/`looksLikeNewMedia`
-  (con exclusión explícita de sticker/GIF) para decidir si vale la pena buscar,
-  `hasMediaPermission` (`Environment.isExternalStorageManager()` en Android 11+, permiso
-  clásico en versiones viejas) y `findNewMedia`. **Desde v2.23, `findNewMedia` ya NO usa
-  `MediaStore`** (confirmado que `MediaStore.Audio` no indexa notas de voz de forma confiable)
-  — lee directo con `java.io.File.listFiles()` las carpetas reales de WhatsApp, mismo patrón
-  que `SoncoBot/WhatsAppWatcher.kt`. **`waRoots()`/`mediaDirsFor()` (v2.24):** por cada raíz
-  (`Android/media/com.whatsapp/WhatsApp`, la de WhatsApp Business, y la ruta legacy), revisa
-  DOS formas posibles — `<raíz>/Media/<subdir>` (clásica) y
-  `<raíz>/accounts/<id>/Media/<subdir>` (con cuenta, WhatsApp multi-cuenta; confirmado en vivo
-  que esta es la que faltaba en v2.23 y por eso no encontraba nada). Si ninguna carpeta resulta
-  accesible por ninguna ruta, loguea un DEBUG explícito para diferenciar "ruta mal" de
-  "archivo todavía no llega". Sigue filtrando por ventana de tiempo alrededor del `postTime` y
-  recordando rutas ya vistas (no `MediaStore` URIs) para no repetir ni recorrer el histórico.
+  corregida v2.24, escaneo genérico de respaldo v2.25**) — detección de medios NUEVOS de
+  WhatsApp: `isWhatsApp`/`looksLikeNewMedia` (con exclusión explícita de sticker/GIF) para
+  decidir si vale la pena buscar, `hasMediaPermission` (`Environment.isExternalStorageManager()`
+  en Android 11+, permiso clásico en versiones viejas) y `findNewMedia`. **Desde v2.23,
+  `findNewMedia` ya NO usa `MediaStore`** (confirmado que `MediaStore.Audio` no indexa notas de
+  voz de forma confiable) — lee directo con `java.io.File.listFiles()` las carpetas reales de
+  WhatsApp, mismo patrón que `SoncoBot/WhatsAppWatcher.kt`. **`mediaDirsFor()` combina dos
+  estrategias:** primero las rutas conocidas — `<raíz>/Media/<subdir>` (clásica) y
+  `<raíz>/accounts/<id>/Media/<subdir>` (con cuenta, WhatsApp multi-cuenta; **v2.24, confirmada
+  en vivo** — era la que faltaba y por eso v2.23 no encontraba nada) —, y **solo si esas no
+  encuentran nada**, cae al escaneo genérico de respaldo (**v2.25**,
+  `genericWhatsAppBases()`/`findDirsNamed()`): busca por nombre de carpeta dentro de cualquier
+  directorio relacionado con WhatsApp, hasta 4 niveles de profundidad, para cubrir otras
+  marcas/modelos sin estructura conocida (pedido explícito del usuario, mismo patrón que
+  `findWhatsAppDirs()` de `SoncoBot`). Si ninguna carpeta resulta accesible por NINGÚN camino,
+  loguea un DEBUG explícito para diferenciar "ruta mal" de "archivo todavía no llega". Sigue
+  filtrando por ventana de tiempo alrededor del `postTime` y recordando rutas ya vistas (no
+  `MediaStore` URIs) para no repetir ni recorrer el histórico.
   `MediaMatch.uri` pasó a ser `MediaMatch.path` (`String`, ruta real del archivo). Llamado
   desde `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que
   encuentra (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h,
