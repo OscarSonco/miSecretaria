@@ -36,6 +36,7 @@ import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
 import com.sco.misecretaria.ui.theme.AccentBlue
 import com.sco.misecretaria.ui.theme.AccentGreen
+import com.sco.misecretaria.ui.theme.MediaCardGreen
 import com.sco.misecretaria.ui.theme.ScoSecretariaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -288,7 +289,11 @@ enum class PickerTarget { WALLET, APP }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(ordered, key = { it.id }) { item ->
             val isPinned = item.id in pinnedIds
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+            val hasMedia = item.mediaPath != null
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = if (hasMedia) CardDefaults.cardColors(containerColor = MediaCardGreen) else CardDefaults.cardColors()
+            ) { Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selectionMode) Checkbox(checked = item.id in selectedIds, onCheckedChange = { checked ->
                         selectedIds = if (checked) selectedIds + item.id else selectedIds - item.id

@@ -25,6 +25,14 @@ import java.util.UUID
 private const val STALE_NOTIFICATION_MS = 2 * 60 * 1000L
 private const val TELEGRAM_LONGPOLL_TIMEOUT_SEC = 25L
 
+/** v2.35: ventana para descartar reposteos — confirmado en vivo (envío de 9 archivos casi
+ * simultáneos) que WhatsApp/Android puede volver a publicar la MISMA notificación (título y
+ * texto idénticos, incluida la duración de un video/audio) varias veces en pocos segundos sin
+ * que haya nada nuevo de verdad — el dedupe existente (`statusBarNotification.key` + título +
+ * texto) no lo agarra porque el `key` cambia entre reposteos aunque el contenido sea idéntico.
+ * Esto producía tarjetas duplicadas en el Historial ("a veces repite mensajes anteriores"). */
+private const val REPOST_WINDOW_MS = 5_000L
+
 class WalletNotificationListener : NotificationListenerService() {
     companion object {
         /** Le pide al sistema que reconecte el listener si Android lo mató (ahorro de batería, etc). */
@@ -34,6 +42,11 @@ class WalletNotificationListener : NotificationListenerService() {
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /** "título|texto" -> hora del último aceptado con ese mismo contenido — ver
+     * `REPOST_WINDOW_MS`. Se limpia solo (entradas viejas se descartan al revisar), nunca
+     * crece sin límite. */
+    private val recentMessages = mutableMapOf<String, Long>()
 
     override fun onCreate() {
         super.onCreate()
@@ -125,6 +138,16 @@ class WalletNotificationListener : NotificationListenerService() {
 
         val dedupeKey = "${statusBarNotification.key}|$title|$completeText"
         if (!WalletNotificationStore.markIfNew(dedupeKey)) return
+
+        // v2.35: descarta reposteos del mismo contenido dentro de REPOST_WINDOW_MS (ver esa
+        // constante) — distinto del dedupeKey de arriba, que no los agarra porque el `key` de
+        // Android cambia entre reposteos aunque el contenido sea idéntico.
+        val now = System.currentTimeMillis()
+        recentMessages.entries.removeAll { now - it.value > REPOST_WINDOW_MS }
+        val repostKey = "$title|$completeText"
+        if (recentMessages.containsKey(repostKey)) return
+        recentMessages[repostKey] = now
+
         val message = listOf(title, completeText).filter { it.isNotBlank() }.distinct().joinToString(": ")
         if (message.isBlank()) return
 
@@ -135,11 +158,21 @@ class WalletNotificationListener : NotificationListenerService() {
         var mediaPath: String? = null
         var mediaType: String? = null
         var extraMediaMatches: List<WhatsAppMediaScanner.MediaMatch> = emptyList()
-        val looksLikeMedia = WhatsAppMediaScanner.isWhatsApp(packageName) && WhatsAppMediaScanner.looksLikeNewMedia(title, completeText)
+        val expectedMediaType = if (WhatsAppMediaScanner.isWhatsApp(packageName)) WhatsAppMediaScanner.expectedType(title, completeText) else null
+        val looksLikeMedia = expectedMediaType != null
+        // v2.37: diagnóstico — confirmado en vivo que un video/documento/foto puede quedar sin
+        // NINGÚN rastro en el log (ni "Medio nuevo" ni "sin encontrar") cuando `expectedType`
+        // devuelve null para un mensaje que a simple vista sí parecía un medio. Este log
+        // (DEBUG, solo para WhatsApp) deja constancia de qué tipo se calculó para CADA
+        // notificación de WhatsApp aceptada, así la próxima vez que pase se puede confirmar de
+        // una si el problema es la detección (expectedType da null) o algo posterior.
+        if (WhatsAppMediaScanner.isWhatsApp(packageName)) {
+            ScoSecretariaLogger.debug(this, "WhatsApp texto=\"${completeText.take(60)}\" tipo detectado=${expectedMediaType ?: "ninguno"}")
+        }
         var retryMedia = false
         if (looksLikeMedia) {
             if (WhatsAppMediaScanner.hasMediaPermission(this)) {
-                val matches = WhatsAppMediaScanner.findNewMedia(this, statusBarNotification.postTime)
+                val matches = WhatsAppMediaScanner.findNewMedia(this, statusBarNotification.postTime, preferredType = expectedMediaType)
                 val first = matches.firstOrNull()
                 if (first != null) {
                     mediaPath = copyMediaToAppStorage(first)
@@ -163,7 +196,7 @@ class WalletNotificationListener : NotificationListenerService() {
         }
         val item = WalletNotification(UUID.randomUUID().toString(), label, title, message, WalletNotificationStore.now(), kind, mediaPath = mediaPath, mediaType = mediaType)
         WalletNotificationStore.add(item)
-        if (retryMedia) scheduleMediaRetry(item.id, statusBarNotification.postTime)
+        if (retryMedia) scheduleMediaRetry(item.id, statusBarNotification.postTime, expectedMediaType)
 
         // Si en la misma ventana llegó más de un archivo nuevo (ej. varias fotos seguidas),
         // el resto se guarda como notificaciones aparte — no se pierden, cada una con su copia.
@@ -228,20 +261,33 @@ class WalletNotificationListener : NotificationListenerService() {
      * Historial la refresca solo (ya sondea cada 700ms). Si sigue sin nada tras los dos
      * intentos, se deja así (no reintenta para siempre).
      */
-    private fun scheduleMediaRetry(notificationId: String, postTimeMs: Long) {
+    /**
+     * v2.38: la lista de reintentos pasó de `[4s, 10s]` (14s en total) a `[4s, 10s, 30s, 60s,
+     * 120s]` (~3.7 minutos en total) — confirmado en vivo con archivos reales (un `.7z` de
+     * ~25 MB, otro de ~46 MB, un pdf de ~71 MB) que WhatsApp puede tardar MINUTOS en terminar
+     * de descargar un documento grande, muy por encima de los 14s que cubría antes. Un audio o
+     * foto normal (pocos MB) sigue encontrándose en los primeros intentos igual que siempre —
+     * esto solo alarga cuánto se espera ANTES de rendirse, no afecta la velocidad de los casos
+     * que ya funcionaban. `elapsedMs` (nuevo) acumula el tiempo real transcurrido, para que la
+     * ventana de búsqueda (`windowAfterMs`) y el mensaje de log reflejen el tiempo total desde
+     * que llegó la notificación, no solo el último paso de espera.
+     */
+    private fun scheduleMediaRetry(notificationId: String, postTimeMs: Long, preferredType: String?) {
         serviceScope.launch {
-            for (extraDelayMs in listOf(4_000L, 10_000L)) {
-                delay(extraDelayMs)
+            var elapsedMs = 0L
+            for (stepMs in listOf(4_000L, 10_000L, 30_000L, 60_000L, 120_000L)) {
+                delay(stepMs)
+                elapsedMs += stepMs
                 val matches = runCatching {
-                    WhatsAppMediaScanner.findNewMedia(applicationContext, postTimeMs, windowAfterMs = extraDelayMs + 15_000L)
+                    WhatsAppMediaScanner.findNewMedia(applicationContext, postTimeMs, windowAfterMs = elapsedMs + 15_000L, preferredType = preferredType)
                 }.getOrDefault(emptyList())
                 val first = matches.firstOrNull() ?: continue
                 val path = copyMediaToAppStorage(first) ?: continue
                 WalletNotificationStore.setMedia(notificationId, path, first.type)
-                ScoSecretariaLogger.info(applicationContext, "Medio nuevo de WhatsApp (reintento a los ${extraDelayMs / 1000}s): ${first.type} \"${first.displayName}\" copiado a $path")
+                ScoSecretariaLogger.info(applicationContext, "Medio nuevo de WhatsApp (reintento a los ${elapsedMs / 1000}s): ${first.type} \"${first.displayName}\" copiado a $path")
                 return@launch
             }
-            ScoSecretariaLogger.debug(applicationContext, "WhatsAppMediaScanner: no se encontró el archivo tras reintentos")
+            ScoSecretariaLogger.debug(applicationContext, "WhatsAppMediaScanner: no se encontró el archivo tras reintentos (${elapsedMs / 1000}s)")
         }
     }
 

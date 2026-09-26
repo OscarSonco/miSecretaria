@@ -243,7 +243,14 @@ def detener_servidor_web(token: str, chat_id: str) -> None:
 # --- Cliente Telegram mínimo (sin librerías, igual que TelegramClient.kt) --------------------
 
 def telegram_get_updates(token: str) -> list:
-    url = f"https://api.telegram.org/bot{token}/getUpdates?offset=0&timeout=0"
+    # offset=0 debería devolver TODO lo no confirmado (así lo documenta Telegram), pero se
+    # confirmó en vivo (2026-09-25) que no es confiable: mientras `getWebhookInfo` reportaba
+    # 15 actualizaciones pendientes reales, offset=0 solo devolvía 1 (la más vieja) — un
+    # offset NEGATIVO ("las últimas N de la cola, sin importar confirmación") sí las trajo
+    # las 15 completas, de forma repetible. Por eso se usa -100 en vez de 0 — sigue sin
+    # confirmar nada ante Telegram (mismo diseño de "cada quien dedupea localmente"), solo
+    # cambia CÓMO se pide la cola para no depender de ese comportamiento poco confiable.
+    url = f"https://api.telegram.org/bot{token}/getUpdates?offset=-100&timeout=0"
     with urllib.request.urlopen(url, timeout=15) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     return data.get("result", []) if data.get("ok") else []

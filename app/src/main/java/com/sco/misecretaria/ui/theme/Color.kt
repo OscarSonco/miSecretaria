@@ -15,3 +15,8 @@ val AccentBlue = Color(0xFF1565C0)
 
 /** Verde de acento para el botón "Volver". */
 val AccentGreen = Color(0xFF188038)
+
+/** Verde CLARO de fondo para las tarjetas del Historial que tienen un archivo adjunto
+ * (foto/video/audio/documento) — para distinguirlas de un vistazo entre el resto de mensajes
+ * mezclados de otros chats (pedido explícito del usuario, 2026-09-25). */
+val MediaCardGreen = Color(0xFFE1F3E5)

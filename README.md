@@ -58,8 +58,14 @@ notificaciones cuando pasa mucho tiempo sin usarla.
   botón para reproducirlo, el video un botón para abrirlo con tu reproductor de video, y el
   documento un botón "📄 Abrir documento" para abrirlo con la app correspondiente (lector de
   PDF, Word, etc.). Útil, por ejemplo, para que una sucursal siempre tenga una copia de una
-  factura enviada por WhatsApp aunque el remitente la borre después. Requiere el permiso
-  "Acceso a todos los archivos" (ver tabla de permisos arriba). Cada tarjeta tiene:
+  factura enviada por WhatsApp aunque el remitente la borre después. Las tarjetas con archivo
+  adjunto se ven con **fondo verde**, para distinguirlas fácil del resto de mensajes de otras
+  conversaciones. Requiere el permiso "Acceso a todos los archivos" (ver tabla de permisos
+  arriba). **La lista solo muestra las últimas 100** (para que la app no se ponga lenta con
+  miles de notificaciones acumuladas) — las más viejas se van cayendo de la vista a medida que
+  llegan nuevas, pero eso NO afecta lo que se manda por Telegram (CSV y medios): ese envío usa
+  su propia cola interna, sin ese límite, así que nada se pierde ahí aunque ya no lo veas en
+  pantalla. Cada tarjeta tiene:
   - **📋 Copiar**: copia el texto de esa notificación al portapapeles (para pegarlo donde
     quieras).
   - **📌 Fijar / 📌 Quitar fijado**: fija hasta 2 notificaciones a la vez para que aparezcan
@@ -126,12 +132,32 @@ un APK nuevo — este botón no encontrará nada porque son builds distintas.
 
 ## Funciones en desarrollo (todavía no completas)
 
-- **Medios nuevos de WhatsApp** (fotos/audio/video/documentos que te mandan): ya se detectan,
-  se guarda una copia propia (sobrevive aunque el remitente la borre) y se muestran/reproducen
-  en el Historial (ver arriba) — fotos/audio/video ya confirmados en un teléfono real;
-  documentos (PDF/Word/Excel) recién agregados, sin confirmar todavía. Lo que falta: reenviar
-  automáticamente estos medios por Telegram, y un checklist en Configuración de qué tipos
-  guardar/reenviar/reproducir.
+- **Medios nuevos de WhatsApp** (fotos/audio/video/documentos que te mandan, en cualquier
+  formato — no importa la extensión): ya se detectan, se guarda una copia propia (sobrevive
+  aunque el remitente la borre) y se muestran/reproducen en el Historial (ver arriba), con
+  fondo **verde** en la tarjeta para distinguirlos a simple vista del resto de mensajes. Se
+  corrigieron dos bugs reales (2026-09-25): (1) si un grupo con mensajes sin leer reenviaba su
+  notificación-resumen justo cuando llegaba un audio/documento real, ese archivo podía quedar
+  adjunto a la notificación equivocada; (2) un audio recibido como archivo compartido (ej. un
+  `.mp3`, distinto de una nota de voz grabada en el chat) nunca se encontraba porque WhatsApp
+  lo guarda en una carpeta distinta a las notas de voz; (3) archivos `.db`/`.log` (ej. reportes
+  o bases de datos de caja chica que te manden tus empleados) se descartaban en silencio, sin
+  guardarlos ni avisar; (4) probado con varios archivos casi juntos (una tanda de 9), algunos
+  quedaban con el archivo de OTRO tipo adjunto (un video con una foto, por ejemplo), y algunos
+  mensajes repetidos por WhatsApp se guardaban duplicados en el Historial; (5) un video o foto
+  enviado junto con un texto propio (no el mensaje "Envió un video." normal de WhatsApp) no se
+  detectaba en absoluto. Corregidos, pendiente de reconfirmar con medios nuevos. ⚠️ Sigue sin
+  explicación un caso puntual: en una prueba, un `.doc`, dos `.7z` y un `.pdf` no llegaron a
+  detectarse sin dejar ningún rastro en el registro interno — se agregó un diagnóstico más
+  detallado para poder confirmar la causa exacta la próxima vez que pase. Nota: para un
+  `.db`/`.log` (o cualquier extensión poco común), el botón "Abrir documento" puede no
+  encontrar una app que lo abra directo en el teléfono — igual queda respaldado, y lo puedes
+  compartir/copiar a tu PC para analizarlo ahí.
+  **Reenvío al bot de Telegram**: cada vez que se manda el CSV periódico (ver "Uso del bot de
+  Telegram" más abajo), también se reenvían las fotos/videos/audios/documentos nuevos guardados
+  desde el último envío — mismo intervalo, sin acción manual. Un archivo de más de 50 MB no se
+  reenvía (límite de Telegram para bots) — queda respaldado igual en el teléfono, solo no viaja
+  al bot. Falta: un checklist en Configuración de qué tipos guardar/reenviar/reproducir.
 - La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real
   instalada para español (usa "Instalar más voces" en Configuración para revisar qué voces
   trae tu equipo).
@@ -281,9 +307,10 @@ mandan por Telegram (en vez de verlos sueltos en el chat):
 
 ### Ver el historial en un panel web (`miSecretaria.html`)
 
-Mientras `csv_importer.py` esté corriendo (ver arriba), puedes encender un dashboard local de
-solo lectura con todo lo que hay en `miSecretaria.db` — tarjetas con el total y el desglose por
-sucursal, y una tabla con las últimas 200 notificaciones.
+Mientras `csv_importer.py` esté corriendo (ver arriba), puedes encender un dashboard local con
+todo lo que hay en `miSecretaria.db` — tarjetas con el total y el desglose por sucursal, una
+tabla con las últimas 200 notificaciones, y (ver más abajo) herramientas para fusionar o
+eliminar sucursales completas.
 
 - **Desde Telegram (recomendado):** manda `/panelon` al bot para encenderlo y `/paneloff` para
   apagarlo. Estos dos comandos son distintos de los que usan las sucursales (`/notificar`,
@@ -291,7 +318,23 @@ sucursal, y una tabla con las últimas 200 notificaciones.
   `csv_importer.py` está corriendo en tu PC y tienes `secrets.properties` configurado.
 - **A mano, sin Telegram:** `python3 web_server.py` desde la carpeta del proyecto.
 - Una vez encendido, ábrelo en el navegador: `http://localhost:8766` (o
-  `http://<IP-de-tu-PC>:8766` desde otro dispositivo de tu misma red).
+  `http://<IP-de-tu-PC>:8766` desde otro dispositivo de tu misma red). También puedes abrir el
+  archivo `miSecretaria.html` directo (doble clic) — te redirige solo a esa misma dirección.
+- **Filtros:** arriba de las tarjetas hay dos desplegables — "Sucursal" y "Aplicación" (Yape,
+  WhatsApp, ZAS, etc.) — se combinan entre sí y filtran la tabla y el total (sobre TODA la
+  base, no solo lo que se ve en pantalla). También puedes hacer clic directo en cualquier
+  tarjeta de sucursal para filtrar por esa sucursal al instante. "✕ Quitar filtros" los
+  resetea a todos.
+- **⚙️ Administrar sucursales (fusionar o eliminar):** desplegable debajo de los filtros.
+  Útil cuando le cambias el nombre a un teléfono (ej. de sucursal o de empleado) y el
+  historial viejo queda repartido bajo el nombre anterior:
+  - **Fusionar:** marca las sucursales viejas con las casillas, escribe (o elige de la lista)
+    el nombre final, y presiona "🔀 Fusionar seleccionadas" — todo ese historial pasa a tener
+    el mismo nombre de sucursal.
+  - **Eliminar:** marca las sucursales que quieras borrar y presiona "🗑️ Eliminar
+    seleccionadas" — pide confirmación, y es **permanente** (a diferencia del Historial de la
+    app en el teléfono, este panel no tiene Papelera). Útil para limpiar sucursales de prueba
+    o duplicados que ya fusionaste a otro nombre.
 
 ### Backup portable del proyecto completo (migrar a otra computadora)
 

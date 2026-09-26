@@ -13,8 +13,13 @@ probó en vivo y SÍ funcionó** (fotos reales con la ruta `accounts/1009/Media/
 probó en vivo y confirmó que el robo de medios entre mensajes ya no pasa** (ver "Tanda v2.29").
 **v2.30 agrega documentos (PDF/Word/Excel) — pedido explícito del usuario para uso real de
 negocio: respaldo de facturas que un empleado de sucursal podría borrar por error o a
-propósito.** Código en disco = v2.30 (`versionCode=2030`, ver "Tanda v2.30" —
-**AÚN NO publicada**, falta correr `release.sh` otra vez). **2.23 en particular sube el
+propósito. v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, tag `v2.30`/commit
+`2952e90` en GitHub). **v2.31 a v2.33 corrigen tres bugs reales encontrados probando v2.30 en
+vivo** (robo de medios por notificación-resumen de grupo, audio compartido en carpeta
+distinta a las notas de voz, y `.db`/`.log` descartados por un filtro de "temporales" — ver
+sus tandas más abajo) **más tarjetas verdes para notificaciones con archivo adjunto (v2.32)**.
+Código en disco = v2.33 (`versionCode=2033`, ver "Tanda v2.33" — **AÚN NO publicada**, falta
+correr `release.sh` otra vez para v2.31-2.33). **2.23 en particular sube el
 perfil de permisos de la app para TODAS
 las sucursales** (pide "Acceso a todos los archivos", no un permiso normal) — conviene que el
 usuario avise al personal antes de que la reciban. **Importante:** la tanda v2.19 completa
@@ -83,6 +88,316 @@ el usuario:
   acaba.
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
+
+### Tanda v2.37 (2026-09-25) — video/foto con texto propio no se detectaban + misterio sin resolver (doc/imagen sin rastro en el log)
+
+El usuario probó de nuevo con un envío detallado y cronometrado: audio de voz (llegó), mp3
+(llegó), 3 videos (17:30 llegó, 17:31 y 17:32 NO), un `.doc` (no llegó), una imagen/screenshot
+(no llegó), dos `.7z` (no llegaron), un pdf (no llegó). Diagnóstico completo con
+`shared_prefs` real (no solo el log).
+
+- 🐛→✅ **Causa CONFIRMADA para los videos #2 y #3 (17:31/17:32): un video enviado CON TEXTO
+  PROPIO ya no trae la frase fija.** WhatsApp normalmente pone "🎥 Envió un video. (0:16)"
+  (sin texto del usuario) — pero si la persona escribe algo junto con el video, WhatsApp
+  reemplaza la frase por ESE texto, dejando el emoji 🎥 + la duración como única señal fija
+  (confirmado en los datos reales: `"🎥 Ahora envio monociclo con motociclista junto con
+  texto (0:15)"` — nada de "Envió un video."). Como `MEDIA_PHRASE_TYPES` solo buscaba la frase
+  EXACTA, un video con texto propio nunca disparaba el escaneo — ni un intento, ni un
+  "sin encontrar", nada.
+  ✅ **Arreglo:** `EMOJI_TYPES` (nuevo) — mismo principio que ya se usaba para documentos desde
+  v2.30 (preferir el emoji, que sobrevive el texto libre, sobre la frase exacta, que no). Se
+  agregó como señal PRIMARIA para los 4 tipos: 🎥 video, 📷 foto, 🎤 nota de voz, 🎵 audio
+  compartido (además de 📄 documento, que ya estaba) — la frase exacta queda de respaldo, por
+  si algún caso no trae emoji. Verificado con los textos reales de esta prueba: el video con
+  texto propio ahora sí calcula tipo "video" correctamente.
+- 🩺 **Misterio SIN resolver todavía: el `.doc`, los dos `.7z`, el `.pdf` y la imagen
+  (screenshot) no dejaron NINGÚN rastro en el log** — ni "Medio nuevo", ni "sin encontrar el
+  archivo todavía", ni "no se encontró tras reintentos". Esto es extraño porque los 4 textos
+  guardados SÍ contienen el emoji correspondiente (confirmado letra por letra, con el código
+  de punto Unicode exacto: `📄` = U+1F4C4, sin variantes ni caracteres invisibles de por
+  medio) — con la lógica actual (y la de antes de este fix), `expectedType()` debería haber
+  devuelto `"document"` para los tres archivos de documento, disparando el escaneo igual.
+  Se probó la lógica exacta en una simulación aparte (Python, replicando el código línea por
+  línea) y SÍ devuelve `"document"` para los tres textos reales — la lógica en sí no tiene un
+  bug evidente. La imagen (screenshot) es un caso aparte: no se encontró ninguna entrada en el
+  Historial con emoji 📷 en absoluto para ese envío — solo el texto de narración
+  ("Ahora e enviado una imagen") sin la notificación real de la foto. Teoría más probable, sin
+  confirmar: cuando la persona manda el archivo Y CASI AL INSTANTE manda un mensaje de texto
+  aparte narrando lo que acaba de mandar (justo el patrón de esta prueba, pensado para que
+  Claude pueda diagnosticar), WhatsApp podría estar fusionando ambos en la MISMA notificación
+  actualizada antes de que `onNotificationPosted` llegue a procesarla, y `latestMessageText()`
+  extrae el texto de narración en vez del de la notificación real del archivo — pero esto NO
+  explica por qué el texto GUARDADO en el Historial (que sale de la MISMA extracción) sí
+  muestra el emoji correcto. Sigue sin explicación sólida.
+  ✅ **Diagnóstico agregado para la próxima vez:** nuevo log DEBUG en
+  `WalletNotificationListener.onNotificationPosted` — para CADA notificación de WhatsApp
+  aceptada, registra el texto (primeros 60 caracteres) y el tipo que `expectedType()`
+  calculó (o "ninguno"). La próxima vez que un documento/imagen no llegue, este log va a decir
+  de una si el problema es la detección (tipo = "ninguno" a pesar del emoji, lo que sería un
+  bug real distinto al que ya se descartó) o si el problema está en otro lado (tipo correcto
+  pero igual sin archivo — ahí sí habría que mirar `findNewMedia`/permisos/carpetas).
+- **Sin confirmar todavía en el teléfono** — recién se instaló v2.37 por ADB. Falta repetir un
+  envío de video con texto propio (para confirmar el fix) y, sobre todo, un documento/imagen
+  con el nuevo log de diagnóstico activo para resolver el misterio de una vez.
+
+### Tanda v2.36 (2026-09-25) — el límite de 100 del Historial podía perder datos ANTES de llegar a Telegram
+
+El usuario notó "el historial siempre muestra 100" y pidió verificarlo. Confirmado: es un
+límite real y a propósito (`history.take(100)` en `WalletNotificationStore.add()`, para que
+`SharedPreferences` no crezca sin límite) — pero revisando más a fondo se encontró que ese
+MISMO límite también afectaba el CSV y el reenvío de medios a Telegram (v2.34), que leían
+directo de `history()` con una marca de tiempo (`lastCsvSentAt`/`lastMediaSentAt`). Si a una
+sucursal le llegaban más de 100 notificaciones entre un envío periódico y el siguiente (día
+ocupado, o el burst de prueba de la Tanda v2.35), las más viejas se perdían del Historial
+**antes** de que el worker llegara a mandarlas — ni quedaban visibles, ni llegaban nunca al
+CSV ni a Telegram. Dado el caso de uso real del usuario (respaldo completo para caja chica),
+esto era un riesgo de pérdida de datos real, no solo un detalle de la interfaz. Se le preguntó
+al usuario cómo prefería resolverlo (subir el límite vs. una cola separada sin límite) —
+eligió la cola separada.
+
+- ✅ **Dos colas de exportación nuevas, SIN el límite de 100** —
+  `WalletNotificationStore.exportCsvQueue()`/`exportMediaQueue()` (persistidas en
+  `SharedPreferences` bajo `export_csv_queue`/`export_media_queue`, con un tope de seguridad
+  de 20.000 — no un límite operativo real, solo para no crecer de verdad sin fin si Telegram
+  queda caído por meses). `WalletNotificationStore.add()` ahora agrega CADA notificación
+  nueva a las dos colas, además del `HISTORY` capado en 100 de siempre (que sigue igual, sin
+  cambios, para lo que se ve en pantalla). Las colas son independientes de lo que se ve en
+  pantalla: un archivo puede desaparecer del Historial visible (por el límite de 100, o
+  porque el usuario lo movió a la Papelera) y de todas formas seguir pendiente de exportar —
+  es justo el comportamiento que se busca para un respaldo: sobrevivir aunque se "borre"
+  localmente, ni la Papelera ni el límite de 100 tocan estas colas.
+- ✅ **`TelegramSyncWorker` reescrito para consumir de las colas, no de `history()` con marca
+  de tiempo** — `sendPendingCsv()`/`sendPendingMedia()` ya no dependen de
+  `TelegramConfig.lastCsvSentAt`/`lastMediaSentAt` (ambas funciones se BORRARON de
+  `TelegramConfig.kt`, sin usos que las necesiten más). Cada ítem de la cola de medios se
+  quita en cuanto se resuelve (mandado, descartado por tamaño, o sin archivo real) — si el
+  envío de uno falla a mitad de camino, se detiene el ciclo ahí, dejando ESE y los siguientes
+  en la cola para el próximo intento, en vez de perderlos o saltárselos. El CSV toma una foto
+  de la cola completa, manda todo junto en un solo archivo, y solo si el envío fue exitoso
+  quita esos ids — lo que haya llegado MIENTRAS se mandaba queda para el próximo ciclo.
+- ✅ **`WalletNotificationStore.setMedia()` (el reintento de `WhatsAppMediaScanner`) ahora
+  también actualiza la copia en `exportMediaQueue()`** — si no, cuando el archivo se
+  encontraba recién en el reintento (4s/10s después), la copia YA guardada en la cola de
+  exportación seguía viendo `mediaPath = null` para siempre y nunca se reenviaba.
+- ⚠️ **No hay migración retroactiva:** las 100 notificaciones que ya estaban en el Historial
+  antes de instalar v2.36 NO se agregaron a las colas nuevas (se crean vacías, se llenan solo
+  con notificaciones NUEVAS desde ahora). No se hizo a propósito — mandar de golpe un backlog
+  de 100 ítems viejos al bot habría sido más ruido que ayuda.
+- **Sin confirmar todavía en el teléfono** — recién se instaló v2.36 por ADB. Falta un ciclo
+  real del worker (o "Sincronizar ahora") con notificaciones nuevas para confirmar que las
+  colas se vacían correctamente.
+
+### Tanda v2.35 (2026-09-25) — burst de 9 archivos: medios cruzados entre tipos + mensajes repetidos
+
+El usuario probó a fondo mandando 3 videos + 3 imágenes + 1 nota de voz + 1 mp3 + 1 pdf desde
+otro WhatsApp, casi todos juntos. Reportó: "solo figuran unos pocos" y "a veces repite
+mensajes anteriores". Diagnóstico completo leyendo `shared_prefs/scosecretaria_v01.xml` real
+(no solo el log, que además estaba inundado de ruido de VLC "Escanear archivos multimedia" —
+mismo problema de rotación que ya pasó antes con OSMAnd, ver limitaciones conocidas).
+
+- 🐛→✅ **Causa real #1 — el escaneo no sabía distinguir TIPOS entre sí mismos.**
+  `findNewMedia()` buscaba en las 4 carpetas (imagen/video/audio/documento) y devolvía TODO lo
+  que encontraba en la ventana de tiempo, sin importar qué tipo anunciaba la notificación en
+  cuestión — el primer resultado (`matches.firstOrNull()`) ganaba sin más criterio que el
+  orden de recorrido de carpetas. Confirmado en los datos reales: una notificación
+  `"TIGO 01 OSC: 🎥 Envió un video. (5:47)"` terminó con una FOTO adjunta (`mediaType: image`),
+  y una `"TIGO 01 OSC: 🎤 Mensaje de voz (0:02)"` terminó con un VIDEO adjunto — ambas porque,
+  con 9 archivos aterrizando casi juntos, siempre había ALGO de otro tipo disponible en la
+  misma ventana que "ganaba" por casualidad de orden.
+  ✅ **Arreglo:** `WhatsAppMediaScanner.expectedType(title, text)` (nuevo, reemplaza el interior
+  de `looksLikeNewMedia()`, que ahora es un simple `expectedType(...) != null`) — cada frase de
+  `MEDIA_PHRASE_TYPES` ahora sabe a qué tipo pertenece ("envió un video" → `"video"`, "mensaje
+  de voz" → `"audio"`, etc.), y el emoji 📄 sigue mapeando a `"document"`. `findNewMedia()`
+  ganó un parámetro `preferredType` — sigue devolviendo TODOS los archivos nuevos encontrados
+  (para no perder los que llegan de más, que se guardan como notificaciones aparte), pero
+  ahora los ORDENA: primero los del tipo que la notificación realmente anuncia, y dentro de
+  cada tipo, el archivo cuya fecha de modificación esté más CERCA del `postTimeMs` de la
+  notificación (antes no había ningún criterio de cercanía, solo "lo que sea que aparezca").
+  Esto no es 100% infalible si llegan DOS archivos del MISMO tipo casi al mismo instante (ej.
+  dos videos con 1 segundo de diferencia) — sigue habiendo margen de error ahí, pero ya no se
+  cruzan tipos distintos (video↔foto, voz↔video) como pasaba antes.
+- 🐛→✅ **Causa real #2 — reposteos duplicados no detectados por el dedupe existente.**
+  Confirmado en los datos reales: la notificación-resumen del grupo "RedSonco 😎😎😎 (7
+  mensajes)" (la misma de la Tanda v2.31) apareció **7 veces** en 11 minutos con el TEXTO
+  IDÉNTICO cada vez, y una nota de voz real (`"TIGO 01 OSC: 🎤 Mensaje de voz (0:02)"`) y un
+  video real (`"TIGO 01 OSC: 🎥 Envió un video. (0:11)"`) también se repitieron, cada uno dos
+  veces con el mismo título+texto exacto, segundos aparte. El dedupe existente
+  (`statusBarNotification.key` + título + texto) no los agarraba — el `key` de Android cambia
+  entre reposteos aunque el contenido sea idéntico, así que cada repost pasaba como "nuevo".
+  Esto es justo el "a veces repite mensajes anteriores" que reportó el usuario.
+  ✅ **Arreglo:** nuevo filtro de reposteo en `WalletNotificationListener` — un mapa en memoria
+  (`recentMessages`, título+texto → hora del último aceptado) descarta cualquier notificación
+  cuyo título+texto EXACTO ya se aceptó hace menos de `REPOST_WINDOW_MS` (5 segundos). Se limpia
+  solo (las entradas más viejas que la ventana se descartan cada vez que se revisa), nunca
+  crece sin límite. 5 segundos es corto a propósito — no debería filtrar dos mensajes
+  genuinamente distintos que coincidan de texto por casualidad, solo reposteos literales del
+  mismo instante.
+- **Sin confirmar todavía en el teléfono** — recién se instaló v2.35 por ADB. Falta que el
+  usuario repita un envío parecido (varios archivos casi juntos) para confirmar que ya no hay
+  cruces de tipo ni repetidos, y seguir de cerca si algún archivo TODAVÍA se pierde del todo
+  (ej. el PDF de esta prueba nunca apareció ni como "no encontrado" en el log — puede ser que
+  su notificación ni siquiera haya llegado a `onNotificationPosted`, algo a investigar en la
+  próxima prueba si se repite).
+
+### Tanda v2.34 (2026-09-25) — reenvío periódico de fotos/videos/audios/documentos al bot (Paso 2f)
+
+Pedido explícito del usuario: "así como de cada App envía cada X tiempo los .csv, que también
+se envíen al BOT los Videos/Audios/Documentos/Archivos". Es el **Paso 2f** que quedaba
+pendiente en el plan de CLAUDE.md desde hace varias tandas.
+
+- ✅ **`TelegramSyncWorker.sendPendingMedia()` (nueva)** — mismo patrón exacto que
+  `sendPendingCsv()`: un marcador "hasta dónde ya se mandó" (`TelegramConfig.lastMediaSentAt`,
+  nuevo, mismo mecanismo que `lastCsvSentAt`) en vez de una lista de pendientes aparte. Cada
+  ciclo del worker periódico (mismo intervalo que el CSV, mínimo 15 min) busca en
+  `WalletNotificationStore.history()` las notificaciones con `mediaPath != null` y
+  `receivedAt` posterior al marcador, las ordena por fecha, y las manda una por una con
+  `TelegramClient.sendDocument()` — reutilizando el mismo método que ya mandaba el CSV (el
+  multipart ya era genérico, solo mandaba el `Content-Type` fijo en `"text/csv"`).
+  - Si el archivo pesa más de 50 MB (límite real de la API de Telegram para bots), se salta
+    (no tiene sentido intentarlo, Telegram lo rechazaría) y el marcador SÍ avanza para ese
+    ítem — no se reintenta para siempre algo que nunca va a poder mandarse.
+  - Si el envío de un archivo falla (red cortada, etc.), se detiene el ciclo ahí — el marcador
+    NO avanza más allá del último que sí se mandó, así ese archivo se reintenta en el próximo
+    ciclo en vez de perderse o saltarse.
+  - El pie de foto (`caption`) incluye un emoji según el tipo (🎥 video, 🎤 audio, 📄
+    documento, 📷 foto/otro), la sucursal, la billetera/app de origen y el mensaje original
+    (recortado a 200 caracteres).
+- ✅ **`TelegramClient.sendDocument()` generalizado** — ganó un parámetro `mimeType` (antes
+  tenía `"text/csv"` fijo en el código, sin importar qué se mandara). El envío del CSV ahora
+  pasa `"text/csv"` explícito (mismo comportamiento que antes, sin regresión); el de medios
+  adivina el tipo real con `MimeTypeMap.getMimeTypeFromExtension()` según la extensión del
+  archivo, así Telegram puede mostrarlo mejor (reproductor de video/audio en vez de un ícono
+  de archivo genérico) — aunque Telegram acepta el archivo igual sin importar si el MIME es
+  exacto. También se subió el `readTimeout` de 20s a 60s (un video puede pesar varios MB, un
+  CSV nunca).
+- **Sin probar todavía en el teléfono** — recién se instaló v2.34 por ADB. El usuario ya tiene
+  medios reales guardados en el historial de antes (fotos/videos/audios/PDF de las pruebas de
+  v2.31-2.33), así que en el próximo ciclo automático (o tocando "Sincronizar ahora" en
+  Configuración) debería empezar a mandarlos al bot — a confirmar que realmente llegan al chat
+  de Telegram y que la próxima corrida no los repite (marcador avanzando bien).
+
+### Tanda v2.33 (2026-09-25) — bug latente: `.db`/`.log` se ignoraban SIEMPRE, aunque el usuario los necesita de verdad
+
+El usuario preguntó qué pasaría si un empleado le manda un `.log` o un `.db` — los pide para
+analizar caja chica/cuentas de las sucursales. Revisando el código ANTES de que pasara de
+verdad (no fue reportado como bug en vivo, se encontró por revisión preventiva):
+
+- 🐛→✅ **`IGNORED_EXTENSIONS` (en `WhatsAppMediaScanner.kt`) incluía `"db"` y `"log"`** —
+  esta lista se copió tal cual de `SoncoBot/WhatsAppWatcher.kt` (otro proyecto, revisado en
+  v2.23 para resolver audio/video) para descartar archivos temporales/internos de WhatsApp
+  (`.nomedia`, `.tmp`, etc.) dentro de sus carpetas de medios. El problema: un `.db`/`.log`
+  real que un empleado mande como documento por WhatsApp (📄 + nombre de archivo, cae en
+  `WhatsApp Documents` igual que cualquier otro documento) quedaría **descartado en silencio**
+  por este filtro — ni se copiaba, ni aparecía en el Historial con su archivo, exactamente
+  como si nunca hubiera llegado. `SoncoBot` nunca tuvo un caso de negocio que necesitara esas
+  dos extensiones como documentos legítimos; miSecretaria sí.
+- ✅ **Arreglo:** se quitaron `"db"` y `"log"` de `IGNORED_EXTENSIONS` — ahora sí se detectan,
+  copian y muestran como cualquier otro documento (botón "📄 Abrir documento"). El resto de la
+  lista (`nomedia`/`tmp`/`dat`/`journal`/`ini`) se dejó igual — no hay evidencia de que
+  también bloqueen algo que el usuario necesite; si en el futuro pasa lo mismo con otra
+  extensión, mismo patrón de arreglo.
+- ⚠️ **Nota aparte, no es un bug:** el botón "Abrir documento" adivina el tipo de archivo por
+  la extensión (`MimeTypeMap`) para elegir con qué app abrirlo — para `.db`/`.log` no hay una
+  app "obvia" instalada típicamente, así que Android va a mostrar el selector genérico "Abrir
+  con" (o avisar que no hay ninguna app que lo abra) en vez de abrirlo automático. El archivo
+  de todas formas queda respaldado y se puede compartir/copiar a la PC para analizarlo ahí
+  (ej. con un visor de SQLite para el `.db`) — el respaldo es lo importante, no la vista previa
+  en el teléfono.
+- **Sin confirmar todavía en el teléfono** — recién se instaló v2.33 por ADB. No hubo caso
+  real reportado (el usuario preguntó "qué pasaría", no que ya le hubiera fallado) — falta que
+  algún empleado le mande un `.db`/`.log` real para confirmar que ahora sí queda guardado.
+
+### Tanda v2.32 (2026-09-25) — audio COMPARTIDO (no nota de voz) nunca se encontraba + tarjetas verdes para lo que trae archivo
+
+Reportado por el usuario tras instalar v2.31: 2 fotos + 2 videos + 1 pdf salieron bien, pero
+un `.mp3` recibido como audio (no una nota de voz grabada en el chat) "no figura en el
+historial" (sin adjunto). También pidió, para que el Historial se vea mejor: (1) las tarjetas
+que traen un archivo adjunto (video/audio/documento/lo que sea) se vean con fondo VERDE, para
+distinguirlas de un vistazo entre el resto de mensajes mezclados de otras conversaciones.
+También reportó que el Historial se ve "desordenado y mezclado con otros chats".
+
+- 🐛→✅ **Causa real, confirmada con `adb shell ls` directo sobre la carpeta real:** WhatsApp
+  guarda los audios en DOS carpetas distintas según el origen — `WhatsApp Voice Notes` (notas
+  de voz grabadas en el chat, `.opus`) y **`WhatsApp Audio`** (archivos de audio COMPARTIDOS,
+  ej. un `.mp3` enviado como adjunto — confirmado: `AUD-20260925-WA0077.mp3` apareció ahí,
+  modificado exactamente a la hora de la notificación). El código (`WA_SUBDIRS`) solo miraba
+  la primera — un comentario viejo en el archivo decía textualmente que "WhatsApp Audio" "se
+  agrega igual por si acaso", pero nunca se agregó de verdad al mapa (comentario desactualizado
+  que no coincidía con el código real). La notificación del mp3 SÍ decía "🎵 Mensaje de voz
+  (1:12)" (mismo texto que una nota de voz, solo con emoji distinto) y SÍ disparaba el
+  escaneo — el escaneo simplemente nunca miraba en la carpeta correcta.
+- ✅ **Arreglo:** `WA_SUBDIRS` cambió de `Map<String, String>` a `Map<String, List<String>>` —
+  el tipo "audio" ahora revisa AMBAS carpetas (`WhatsApp Voice Notes` y `WhatsApp Audio`).
+  `findNewMedia()` itera la lista de subcarpetas por tipo en vez de una sola. El resto de tipos
+  (imagen/video/documento) quedan con una sola carpeta cada uno, sin cambios de comportamiento.
+- ✅ **Tarjetas verdes para notificaciones con archivo adjunto:** `MediaCardGreen` (nuevo,
+  `ui/theme/Color.kt`, `#E1F3E5` — verde CLARO de fondo, no el verde fuerte de los botones,
+  para que el texto siga leyéndose normal) — el `Card` de cada notificación en el Historial
+  (`MainActivity.kt`) usa ese color de fondo si `item.mediaPath != null` (cualquier tipo:
+  imagen/video/audio/documento), y el color por defecto si no. Aplica pareja a todos los
+  tipos, no solo a los que pidió explícitamente el usuario (video/audio/documento) — una foto
+  con miniatura también cuenta como "trae archivo adjunto".
+- 🩺 **"Desordenado y mezclado con otros chats" — revisado el código, NO es un bug de orden:**
+  `WalletNotificationStore.add()` siempre inserta al PRINCIPIO (`history.add(0, ...)`, más
+  nuevo primero) y `HomeScreen` no reordena por su cuenta (`ordered = pinned + rest`, sin
+  volver a ordenar por fecha) — el orden cronológico real se respeta. La sensación de
+  "mezclado" es el diseño de la app: captura TODAS las conversaciones de WhatsApp en una sola
+  lista, así que si mandas 5 archivos seguidos, los mensajes de OTRAS conversaciones que
+  lleguen en el medio aparecen igual, intercalados, en el Historial — no hay una vista
+  separada "solo lo que yo mandé". Las tarjetas verdes de este mismo cambio deberían ayudar
+  mucho a que los archivos destaquen a simple vista aunque sigan intercalados. Si el usuario
+  quiere además un filtro "solo con archivo adjunto", es un pedido nuevo, no implementado
+  todavía.
+- **Sin confirmar todavía en el teléfono** — recién se instaló v2.32 por ADB. Falta mandar un
+  audio compartido (no nota de voz) y confirmar que aparece con su reproductor, y ver las
+  tarjetas verdes en pantalla.
+
+### Tanda v2.31 (2026-09-25) — el audio y el PDF SÍ se detectaban, pero se los "robaba" una notificación resumen de grupo vieja
+
+🐛→✅ **Reportado por el usuario:** mandó 2 fotos + 2 videos + 1 audio + 1 catálogo en PDF por
+WhatsApp — las 4 primeras (fotos/videos) se registraron bien, pero el audio y el PDF "solo
+registró texto". Diagnóstico completo con el teléfono conectado por ADB (log +
+`shared_prefs/scosecretaria_v01.xml` real, no solo el log):
+
+- **El log SÍ mostraba** `"Medio nuevo de WhatsApp: audio \"PTT-...opus\" copiado a ..."` y
+  `"...document \"CATALOGO SIERRAS...pdf\" copiado a ..."` — es decir, `WhatsAppMediaScanner`
+  SÍ encontró y copió los dos archivos reales. El problema no era la detección/copia (eso ya
+  estaba resuelto desde v2.23-v2.30); era que terminaban adjuntos a la notificación
+  EQUIVOCADA.
+- **Causa real, confirmada comparando mensaje vs. medio adjunto en `shared_prefs` real:** hay
+  un grupo de WhatsApp ("RedSonco 😎😎😎") cuya notificación-resumen de varios mensajes sin
+  leer (título `"RedSonco 😎😎😎 (7 mensajes)"`) se repitió varias veces durante la prueba —
+  y el "último mensaje" que `latestMessageText()` le extrae es uno VIEJO, del 13.09.2026 (12
+  días antes), que menciona un PDF distinto ("13.09.2026.FacturaPDF.pdf"). Como ese texto
+  viejo contiene el emoji 📄, cada vez que esa notificación-resumen se reenviaba,
+  `looksLikeNewMedia()` la tomaba por "esto parece un documento nuevo" y disparaba un escaneo
+  — que, como busca "lo que sea que haya en la carpeta ahora mismo", terminó agarrando el
+  audio real (15:18:45) y más tarde el PDF real del catálogo (15:19:22) que SÍ acababan de
+  llegar por OTRAS conversaciones. Confirmado en los datos guardados: la notificación real
+  `"TIGO 01 OSC: 🎤 Mensaje de voz (0:11)"` quedó con `mediaPath: null`, mientras que
+  `"RedSonco 😎😎😎 (7 mensajes): TIGO 01 OSC: 📄 13.09.2026.FacturaPDF.pdf"` (texto viejo, sin
+  relación) quedó con el `.opus` real adjunto; mismo patrón exacto con el PDF del catálogo
+  unos segundos después.
+- ✅ **Arreglo:** `WhatsAppMediaScanner.looksLikeNewMedia()` ahora excluye por completo
+  cualquier notificación cuyo TÍTULO calce con el patrón `"(N mensajes)"`/`"(N messages)"`
+  (`GROUP_SUMMARY_TITLE`, nueva regex) — sin importar lo que diga el texto, no hay forma de
+  confiar en que el "último mensaje" de un resumen de grupo sea genuinamente nuevo. No se
+  tocó `WalletNotificationListener.kt` (el filtro de `FLAG_GROUP_SUMMARY` ahí sigue igual;
+  confirmado que esta notificación en particular NO trae ese flag en este teléfono, por eso
+  se necesitó un filtro adicional en el scanner).
+- 🔍 **Hallazgo relacionado, NO corregido en esta tanda (fuera de lo que pidió el usuario):**
+  el mismo log mostró el texto `"Sonco Perú: 🎥 Envió un video. (0:04)"` repetido 6 veces en
+  ~2 minutos, cada vez con un archivo distinto adjunto (a veces una imagen en vez de un video,
+  a veces sin nada) — parece ser la MISMA notificación de un video real que WhatsApp
+  reenvía/actualiza varias veces (progreso de descarga, cambios de estado), y cada reenvío
+  vuelve a disparar su propio escaneo, con riesgo de agarrar el archivo equivocado si hay
+  varios llegando cerca en el tiempo. Como en esta prueba las 4 fotos/videos igual se vieron
+  "bien" a simple vista (el usuario no reportó esto como problema), se deja documentado para
+  el futuro en vez de tocarlo ahora — mismo patrón de "no arreglar lo que no se pidió".
+- **Sin confirmar todavía que el fix resuelva el problema en la práctica** — recién se
+  instaló v2.31 por ADB; falta que llegue un audio y un documento nuevos (idealmente sin que
+  ese grupo con la notificación-resumen vieja se reactive al mismo tiempo) para confirmar que
+  ahora sí quedan adjuntos a su propia notificación.
 
 ### Tanda v2.30 (2026-09-25) — documentos (PDF/Word/Excel), pedido con caso de uso de negocio real
 
@@ -802,7 +1117,7 @@ Verificado EN VIVO vía el log interno del teléfono (`run-as ... cat files/miSe
 | YASTA y "Bille" no procesan notificaciones | ✅ resuelto por el usuario: re-agregó las billeteras desde el selector de apps instaladas (ahora con `packageId` real). Quedó un rastro "YOLO" viejo (vacío) duplicado con el nuevo "Yolo Pago" — ver fila siguiente |
 | No había forma de borrar una billetera/app mal agregada, solo activar/desactivar | ✅ en código: `WalletConfig.remove`/`AppConfig.remove` + botón "Quitar" junto al switch de cada regla en Configuración (2026-09-23, sin probar en equipo aún) |
 | Audio de WhatsApp en cola / video como audio | 🔄 Paso 2 fase 1 (2a-2c) ✅ en código y compilado: permisos de medios + fila en Configuración, detección de notificación de medio nuevo de WhatsApp, búsqueda en `MediaStore` solo de archivos recién agregados (ventana de tiempo, sin recorrer histórico), solo LOGUEA lo encontrado (`WhatsAppMediaScanner.kt`). Falta probar en el teléfono con un medio real y luego 2d-2h (cola de reproducción, copia antes de borrado, reenvío a Telegram, checklist) |
-| Guardar copia de medios borrados + reenviar al bot + checklist de tipos | 🔄 **v2.26: la copia (2d) y mostrar/reproducir en el Historial (versión ligera de 2e) YA están en código** (`copyMediaToAppStorage`, `AudioPlayer`, `VideoOpenButton`) — sin probar en el teléfono todavía. Sigue faltando: la cola de reproducción coordinada con TTS (2e completo), el checklist de qué tipos guardar/reenviar (2g), y el reenvío al bot de Telegram (2f) |
+| Guardar copia de medios borrados + reenviar al bot + checklist de tipos | 🔄 **v2.26: la copia (2d) y mostrar/reproducir en el Historial (versión ligera de 2e) YA están en código** (`copyMediaToAppStorage`, `AudioPlayer`, `VideoOpenButton`). **v2.34: el reenvío al bot de Telegram (2f) también YA está en código** (`sendPendingMedia`, mismo ciclo periódico que el CSV) — sin probar en el teléfono todavía. Sigue faltando: la cola de reproducción coordinada con TTS (2e completo) y el checklist de qué tipos guardar/reenviar (2g) |
 | Subir versión (2.12) | ✅ hecho en `app/build.gradle.kts` (2026-09-23); falta que el usuario corra el release (`.desktop`/`release.sh`) |
 | Limpieza del repo (scripts/archivos huérfanos) | ✅ hecho 2026-09-23: ver "Limpieza del repo" más abajo |
 | Configurar bot de Telegram | 🔄 el usuario creó el bot (`t.me/miSecretariaPerfecta_bot`) y obtuvo el token con BotFather; Claude obtuvo el Chat ID (`8159568738`) consultando `getUpdates` una sola vez (uso puntual, no guardado en ningún archivo). **El token NO se guarda en CLAUDE.md/README/repo por seguridad** — el usuario debe pegarlo él mismo en Configuración → Telegram → "Token del bot", junto con el Chat ID. Falta que el usuario guarde y pruebe "Enviar mensaje de prueba" |
@@ -861,8 +1176,11 @@ teléfono con un medio real** antes de construir cola/reenvío (2d–2h).
 - 2e. Reproducción en cola: audio (.opus) con `MediaPlayer`/Media3 por orden de llegada;
   video "como audio" (solo la pista de audio); coordinar con el TTS para no pisar la voz que
   lee el texto; botones Detener/Saltar.
-- 2f. Reenvío al bot de Telegram: generalizar `TelegramClient.sendDocument` (el multipart ya
-  existe) o añadir `sendVoice/sendAudio/sendVideo/sendPhoto`. Límite de 50 MB por archivo para bots.
+- 2f. ✅ **Hecho en v2.34 (2026-09-25)** — `TelegramSyncWorker.sendPendingMedia()`, mismo
+  patrón que el CSV (marcador `lastMediaSentAt`), generalizando `TelegramClient.sendDocument`
+  (no se agregaron `sendVoice/sendAudio/sendVideo/sendPhoto` separados — `sendDocument` ya
+  acepta cualquier archivo, solo se le agregó el parámetro `mimeType`). Sí respeta el límite
+  de 50 MB por archivo (se salta, no se reintenta). Sin probar en el teléfono todavía.
 - 2g. Checklist en Configuración de qué tipos guardar/reenviar/reproducir (imagen, audio,
   video, documento): nuevo `MediaConfig.kt` o claves en `DisplayPreferences`.
 - 2h. Modelo/Store: `WalletNotification.mediaPath` hoy solo guarda la miniatura; agregar
@@ -951,17 +1269,38 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2030`, `versionName="2.30"` (ver `app/build.gradle.kts`,
+- **Versión actual:** `versionCode=2037`, `versionName="2.37"` (ver `app/build.gradle.kts`,
   subida 2026-09-25). Compila limpio, build Interna generada, **YA INSTALADA por ADB en el
-  teléfono del usuario** (`adb install -r`, nueva regla — ver arriba) pero **AÚN NO publicada
-  en GitHub/Firebase** — v2.29 sigue siendo lo que ven las sucursales vía "Buscar
-  actualización" hasta que se corra `release.sh`. **v2.24 ya se confirmó en vivo** (fotos
-  reales); **v2.29 ya se confirmó en vivo** (el robo de medios entre mensajes ya no pasa,
-  comparando el historial real antes/después de instalarla). **v2.30 (documentos) es la más
-  nueva, sin probar todavía.** **Pendiente de verificar en vivo:** que un documento nuevo (PDF/
-  Word/Excel) aparezca con el botón "Abrir documento" y se abra bien (v2.30), y el escaneo
-  genérico de respaldo de v2.25 (nunca se
-  ejercitó, porque las rutas conocidas ya encuentran todo en este teléfono). También pendiente: guardar/probar el
+  teléfono del usuario** (`adb install -r`, confirmado `lastUpdateTime=2026-09-25 17:47:10`).
+  **v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, ver más abajo — el tag
+  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.37 aún no**, falta
+  correr `release.sh` de nuevo. **v2.24 ya se confirmó en vivo** (fotos reales); **v2.29 ya se
+  confirmó en vivo** (el robo de medios entre mensajes por palabra suelta ya no pasa). **v2.30
+  (documentos) confirmado en vivo, con varios bugs reales encontrados y corregidos en
+  v2.31-v2.36 — ver esas tandas más abajo:** (v2.31) el PDF SÍ se detectaba/copiaba, pero
+  terminaba adjunto a la notificación equivocada por una notificación-resumen de grupo vieja;
+  (v2.32) un audio COMPARTIDO (`.mp3`, no nota de voz) nunca se encontraba porque solo se
+  miraba la carpeta de notas de voz, no la de audios compartidos; (v2.33) `.db`/`.log` (que el
+  usuario SÍ necesita recibir, para caja chica) se descartaban en silencio por un filtro de
+  "archivos temporales" copiado de otro proyecto sin ese caso de uso — encontrado por revisión
+  preventiva, antes de que fallara en la práctica; (v2.34) reenvío periódico de medios al bot
+  de Telegram (Paso 2f), mismo patrón que el CSV; (v2.35) probado a fondo con un burst de 9
+  archivos (3 videos, 3 imágenes, voz, mp3, pdf) casi simultáneos — encontró y corrigió dos
+  bugs más: medios de un tipo terminaban adjuntos a notificaciones de OTRO tipo (video↔foto,
+  voz↔video), y notificaciones repostadas por WhatsApp/Android con contenido idéntico se
+  guardaban como duplicadas (el "a veces repite mensajes anteriores" que reportó el usuario);
+  (v2.36) el límite de 100 del Historial (por diseño, para no crecer sin fin) también estaba
+  limitando el CSV/reenvío de medios a Telegram — se separó en dos colas de exportación sin
+  ese límite, decisión tomada con el usuario (eligió "cola separada" sobre "solo subir el
+  número"); (v2.37) video/foto enviados CON TEXTO PROPIO no traían la frase fija y nunca se
+  detectaban — corregido usando el emoji (🎥/📷/🎤/🎵) como señal primaria, mismo principio
+  que documentos desde v2.30. **Misterio sin resolver:** un `.doc`, dos `.7z`, un `.pdf` y una
+  imagen no dejaron NINGÚN rastro en el log a pesar de que el texto guardado sí tenía el emoji
+  correcto — se agregó un log de diagnóstico nuevo para la próxima vez (ver "Tanda v2.37").
+  **Pendiente de verificar en vivo:** el fix de video/foto con texto propio, y sobre todo el
+  misterio de arriba con el log de diagnóstico activo. También sigue pendiente el
+  escaneo genérico de respaldo de v2.25 (nunca se ejercitó, porque las rutas conocidas ya
+  encuentran todo en este teléfono). También pendiente: guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
@@ -1040,6 +1379,120 @@ Pedido explícito del usuario: poder ver localmente lo que hay en `miSecretaria.
   con doble clic (sin pasar por `web_server.py`) muestra las llaves sin rellenar, no datos
   reales; solo se ve bien visitando `http://localhost:8766` (o la IP de la PC) mientras el
   servidor está encendido.
+- ✅ **Redirección automática al abrir el archivo directo (2026-09-25, pedido explícito del
+  usuario: "sino, no tendría sentido haber creado ese html")** — `miSecretaria.html` ahora
+  tiene un `<script>` al principio del `<head>` que revisa `window.location.protocol`: si es
+  `"file:"` (doble clic), redirige solo a `http://localhost:8766/`; si es `http:`/`https:`
+  (servido por Flask), no hace nada y se ve la plantilla ya rellenada. Si el servidor está
+  apagado en ese momento, el navegador muestra el error normal de "no se puede conectar" en
+  vez de las llaves vacías — más claro, pero requiere que el importador esté corriendo y el
+  panel encendido (`/panelon`) para que la redirección sirva de algo.
+  🐛→✅ **Bug propio encontrado al probar esto:** el comentario del script original decía
+  textualmente "...se ven las llaves `{{ }}` sin rellenar" — Jinja2 intenta parsear ESE mismo
+  `{{ }}` como una expresión de plantilla (no distingue "esto es un comentario de JS" de
+  "esto es código Jinja"), tirando `TemplateSyntaxError` y una página 500 en cuanto Flask
+  recompilaba la plantilla (no se notó al momento de escribirlo porque el proceso de
+  `web_server.py` ya estaba corriendo desde antes con la plantilla vieja cacheada en memoria —
+  Jinja2 con `debug=False` no recarga plantillas solas; recién se manifestó al reiniciar el
+  servidor). Corregido reescribiendo el comentario sin usar `{{ }}` literal. **Lección para el
+  futuro:** cualquier texto (comentario, string, lo que sea) dentro de `miSecretaria.html` que
+  necesite mencionar la sintaxis `{{ }}`/`{% %}` de Jinja2 tiene que evitar escribirla literal,
+  o Jinja la va a interpretar como código real.
+- ✅ **Filtros por sucursal y por aplicación (2026-09-25, pedido explícito del usuario)** —
+  filtrado del lado del servidor (no solo sobre las 200 filas ya cargadas, para no perder
+  resultados de una sucursal/app poco frecuente que quedaría fuera de las últimas 200
+  globales):
+  - `web_server.py`: `query_db(sucursal, origen)` ahora arma la consulta SQL con `WHERE`
+    dinámico (parámetros vía `?`, nunca concatenados directo — sin riesgo de inyección) según
+    los query params `?sucursal=...`/`?origen=...` de la URL (`request.args`). Las tarjetas por
+    sucursal y las listas de opciones de los `<select>` (`sucursales`/`origenes`) siempre
+    reflejan TODA la base sin importar el filtro activo, para que el usuario vea todas las
+    opciones disponibles; `total`/`recientes` sí quedan filtrados.
+  - `miSecretaria.html`: dos `<select>` (Sucursal/Aplicación) dentro de un `<form method="get">`
+    que se auto-envía con `onchange="this.form.submit()"` (funciona sin JavaScript también,
+    con el botón nativo de envío del `<select>`). Cada tarjeta de sucursal es ahora un botón
+    dentro de su propio mini-`<form>` (en vez de un `<div>`) — un clic filtra directo a esa
+    sucursal sin tocar el desplegable, preservando el filtro de aplicación activo si había uno
+    (vía un `<input type="hidden">`). Aparece un enlace "✕ Quitar filtros" (vuelve a `/`, sin
+    query params) solo cuando hay algún filtro activo. Tarjeta activa resaltada con
+    `.tarjeta-activa` (borde azul).
+  - **Probado en vivo (2026-09-25) desde el navegador integrado de Claude:** filtro por
+    sucursal solo (`OSC_TecnoPovaNeo2` → 88 de 88), combinado con aplicación (`+ ZAS` → 2 de
+    2, las dos coincidían), "Quitar filtros" resetea ambos `<select>` a "Todas", y clic directo
+    en la tarjeta "VIC_PocoX5" filtra a esa sucursal (116 de 116) sin pasar por el desplegable.
+    Confirmado también que el bug de Jinja de arriba está resuelto (la página ya no tira 500).
+- 🐛→✅ **Bug real encontrado (2026-09-25): `/panelon` no hacía nada — `getUpdates(offset=0)`
+  no es confiable, se queda pegado devolviendo solo el mensaje más viejo.** El usuario mandó
+  `/panelon` varias veces (13:24, 13:57, 14:00, 14:48, 14:49, 14:52 — confirmado con doble
+  check ✓✓ de "entregado" en su Telegram) y `csv_importer.py` nunca respondió ni encendió el
+  panel, incluso después de reiniciarlo. Diagnóstico completo contra la API real de Telegram
+  (sin tocar nada de la app, solo lectura):
+  - `getWebhookInfo` mostró `pending_update_count: 15` — Telegram SÍ tenía 15 mensajes sin
+    confirmar en cola.
+  - Pero `getUpdates?offset=0` (exactamente lo que hace `telegram_get_updates()` en
+    `csv_importer.py`) devolvía **un solo resultado**, siempre el mismo: un `/help` de un día
+    antes (24/09 18:07) — nunca los `/panelon` de hoy. Repetido varias veces, con y sin
+    `limit=100`/`allowed_updates` reseteado: mismo resultado, estable y reproducible.
+  - `getUpdates?offset=-15` (el modo "dame las últimas N de la cola" que documenta la API de
+    Telegram, alternativa a "offset=0 = dame todo lo no confirmado") **sí devolvió las 15
+    completas** — incluyendo los 6 `/panelon` de hoy y el `/help` de las 15:00. Confirmado
+    2 veces seguidas, estable.
+  - Se descartó que otro proceso de esta máquina "se coma" las actualizaciones: se buscó el
+    token del bot en todo `~/Documents/` y solo aparece en la carpeta de miSecretaria.
+    También se descartó un webhook activo (`getWebhookInfo.url` vacío).
+  - Dato adicional, no contradictorio: el teléfono conectado (`TECNO_LG6n`, v2.30) tenía en su
+    `shared_prefs/telegram_config_v1.xml` un `processed_update_ids` con exactamente ese mismo
+    rango de ids (530 a 594) — es decir, en algún momento SÍ logró ver el lote completo con su
+    propio `offset=0` (la app Android usa el mismo diseño). El fallo de `offset=0` parece ser
+    intermitente/dependiente de qué réplica del backend de Telegram responde, no un error de
+    sintaxis del lado de acá — por eso conviene el offset negativo, que fue estable las dos
+    veces que se probó.
+  - ✅ **Arreglo:** `telegram_get_updates()` en `csv_importer.py` cambió de `offset=0` a
+    `offset=-100` — sigue sin confirmar nada ante Telegram (mismo diseño de dedupe local vía
+    `panel_updates_procesados`), solo cambia CÓMO se pide la cola para no depender del
+    comportamiento poco confiable de `offset=0`. **Aplica solo a `csv_importer.py` (Python,
+    PC) por ahora** — no se tocó `TelegramClient.kt` (Android) porque el teléfono probado SÍ
+    tenía el lote completo en su set local, sin evidencia de que le esté pasando lo mismo; si
+    algún device de sucursal reporta que `/notificar`/`/renombrar` "no llegan" de forma
+    persistente (no solo lenta), vale la pena aplicar el mismo cambio ahí.
+  - **✅ Confirmado en vivo (2026-09-25):** el usuario reinició `csv_importer.py` y mandó
+    `/panelon` de nuevo — "Ya encendió después de mucho tiempo..." (tardó, pero encendió; el
+    offset negativo sí trae los mensajes que antes se perdían con `offset=0`).
+- ✅ **Fusionar y eliminar sucursales desde `miSecretaria.html` (2026-09-25, pedido explícito
+  del usuario)** — motivo real: el usuario renombra el `deviceLabel` de un teléfono cuando
+  cambia de empleado/sucursal (ej. `MS-YCFNS9` → `VIC_PocoX5` → `VIC_RedmiNote13Pro`, el mismo
+  teléfono con 3 nombres distintos con el tiempo), pero como `sucursal` en `miSecretaria.db`
+  es el nombre TAL CUAL llegó en cada CSV histórico, el historial viejo queda repartido bajo
+  nombres distintos en vez de junto. Nuevo panel colapsable `<details>` "⚙️ Administrar
+  sucursales" debajo de los filtros, con una tabla de checkboxes (una fila por sucursal, con
+  su conteo) y dos acciones sobre un mismo formulario (`<form method="post"
+  action="/administrar">`, dos `<button name="accion" value="fusionar|eliminar">`):
+  - **Fusionar:** marca 1+ sucursales de origen, escribe (o elige de un `<datalist>` con las
+    ya existentes) el nombre destino → `UPDATE notificaciones SET sucursal = ? WHERE sucursal
+    IN (...)`. Si el destino es un nombre nuevo que no existía, simplemente aparece; si ya
+    existía, sus filas se suman.
+  - **Eliminar:** marca 1+ sucursales → `DELETE FROM notificaciones WHERE sucursal IN (...)`,
+    con confirmación `confirm()` de JavaScript antes de enviar (deja claro que es permanente,
+    "no hay papelera acá" — a diferencia del Historial de la app Android, que sí tiene
+    Papelera desde v2.20). Pensado para limpiar sucursales de prueba o duplicados ya
+    fusionados a otro nombre.
+  - `web_server.py`: `get_write_conn()` (nueva) abre una conexión de escritura de corta
+    duración (se cierra apenas termina la función que la usa, nunca queda viva entre
+    requests) con `PRAGMA busy_timeout = 5000` — si `csv_importer.py` está insertando un CSV
+    justo en ese milisegundo, esta conexión ESPERA hasta 5s en vez de fallar con "database is
+    locked", en vez de competir a ciegas. La conexión de LECTURA de siempre
+    (`query_db`, modo `?mode=ro`) no cambió — sigue siendo de solo lectura.
+  - Ruta nueva `POST /administrar`: lee `accion`/`sucursales`/`destino` del formulario,
+    ejecuta `fusionar_sucursales()`/`eliminar_sucursales()`, y redirige a `/?msg=...` con un
+    resumen de cuántas filas se movieron/borraron — la plantilla muestra ese mensaje en una
+    cajita azul arriba de la tabla si `msg` viene en la URL.
+  - **Probado (2026-09-25) SOLO sobre una copia descartable de la base** (`cp` a `/tmp`,
+    nunca la real) — confirmado que fusionar 12 filas de `MS-YCFNS9` a `VIC_RedmiNote13Pro`
+    y eliminar las 5 de `MS-4ERLNN` funcionan como se espera (conteos correctos antes/después,
+    total final consistente). **A propósito NO se probó contra `miSecretaria.db` real** — es
+    una operación que muta/borra datos reales de verdad, así que la primera vez que se use
+    contra la base real del usuario debe ser el usuario decidiendo qué fusionar/eliminar
+    desde el navegador, no Claude ejecutándolo por su cuenta.
 - ✅ **Control por Telegram (`/panelon`, `/paneloff`)** — vive DENTRO de `csv_importer.py`, no
   en un script aparte: como `web_server.py` no puede escucharse a sí mismo para "encenderse"
   (si está apagado no hay nada corriendo que reciba el comando), el que escucha tiene que ser un
@@ -1174,7 +1627,11 @@ cada exclusión.
   ahora rama por `item.mediaType` — `"image"`/`null` sigue usando `ThumbnailImage` (ahora con
   la foto real, no la miniatura), `"audio"` usa el composable nuevo `AudioPlayer`
   (`android.media.MediaPlayer`, botón reproducir/detener), `"video"` usa `VideoOpenButton`
-  (abre con el reproductor externo vía `FileProvider`).
+  (abre con el reproductor externo vía `FileProvider`). **v2.32:** cada `Card` del Historial
+  usa `MediaCardGreen` (`ui/theme/Color.kt`, verde claro `#E1F3E5`) como fondo si
+  `item.mediaPath != null` (cualquier tipo — imagen/video/audio/documento), para distinguir a
+  simple vista las notificaciones con archivo adjunto entre el resto de mensajes de otras
+  conversaciones (pedido explícito del usuario).
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,
@@ -1194,7 +1651,13 @@ cada exclusión.
   perdían). **v2.27:** si el primer intento no encuentra nada, `scheduleMediaRetry()` reintenta
   a los 4s/10s en `serviceScope` y actualiza la notificación ya guardada con
   `WalletNotificationStore.setMedia()` si lo encuentra después (confirmado en vivo que sin esto
-  se perdían fotos que WhatsApp tardaba en terminar de escribir). Actualiza el "heartbeat"
+  se perdían fotos que WhatsApp tardaba en terminar de escribir). **v2.35:** `expectedType`
+  (de `WhatsAppMediaScanner`) se calcula ANTES de escanear y se pasa como `preferredType` a
+  `findNewMedia()`/`scheduleMediaRetry()` — evita que un medio de un tipo termine adjunto a la
+  notificación de otro tipo. También nuevo: `recentMessages` (mapa en memoria, título+texto →
+  hora) descarta notificaciones repostadas por WhatsApp/Android con contenido IDÉNTICO dentro
+  de `REPOST_WINDOW_MS` (5s) — el dedupe existente por `statusBarNotification.key` no las
+  agarraba porque ese `key` cambia entre reposteos aunque el contenido no cambie. Actualiza el "heartbeat"
   (`DisplayPreferences.touchHeartbeat`) en cada evento, para
   que la Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)`
   (llamado desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener
@@ -1241,7 +1704,28 @@ cada exclusión.
   — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
   switch de cada fila en Configuración.
 - `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23, ruta
-  corregida v2.24, escaneo genérico de respaldo v2.25, subcarpetas por semana v2.28**) —
+  corregida v2.24, escaneo genérico de respaldo v2.25, subcarpetas por semana v2.28,
+  exclusión de resúmenes de grupo v2.31, dos carpetas de audio v2.32, extensiones legítimas
+  v2.33, tipos priorizados v2.35, emoji como señal primaria v2.37**) — **v2.37:**
+  `EMOJI_TYPES` (nuevo) — 🎥/📷/🎤/🎵 (además de 📄, que ya estaba) como señal PRIMARIA de
+  `expectedType()`, antes de caer a la frase exacta — un video/foto enviado CON TEXTO PROPIO
+  ya no trae la frase fija ("Envió un video."), solo el emoji + duración sobreviven.
+  **v2.35:** `expectedType(title, text)` (nuevo,
+  `looksLikeNewMedia()` pasó a ser solo `expectedType(...) != null`) — cada frase de
+  `MEDIA_PHRASE_TYPES` sabe a qué tipo pertenece; `findNewMedia()` ganó `preferredType` y
+  ahora ORDENA los resultados (tipo esperado primero, luego cercanía de `lastModifiedMs` al
+  `postTimeMs`) en vez de devolver "lo que sea que encuentre primero" — corrige medios que se
+  cruzaban entre tipos (video↔foto, voz↔video) confirmado con un burst de 9 archivos reales.
+  **v2.33:** `IGNORED_EXTENSIONS` ya NO incluye `"db"`/`"log"` — el usuario
+  necesita recibir justo esas extensiones (reportes/bases de caja chica de sus empleados) y
+  antes se descartaban en silencio, mismo tratamiento que un archivo temporal de WhatsApp.
+  **v2.32:**
+  `WA_SUBDIRS` pasó de `Map<String, String>` a `Map<String, List<String>>` — el tipo "audio"
+  ahora mira TANTO `WhatsApp Voice Notes` (notas de voz grabadas) COMO `WhatsApp Audio`
+  (archivos de audio compartidos, ej. un `.mp3` mandado como adjunto — confirmado con
+  `adb shell ls` que viven en carpetas distintas). **v2.31:** `GROUP_SUMMARY_TITLE` (regex
+  `"(N mensajes)"`) excluye notificaciones-resumen de grupo de `looksLikeNewMedia()` —
+  confirmado en vivo que le podían "robar" a otra conversación un archivo real recién llegado.
   **v2.28:** `filesIn(dir, extraDepth=1)` reemplaza `dir.listFiles()` directo — "WhatsApp Voice
   Notes" agrupa los `.opus` en subcarpetas por semana (`202639`, etc.), a diferencia de
   imagen/video que los dejan sueltos; sin esto el audio fallaba el 100% de las veces
@@ -1264,9 +1748,18 @@ cada exclusión.
   filtrando por ventana de tiempo alrededor del `postTime` y recordando rutas ya vistas (no
   `MediaStore` URIs) para no repetir ni recorrer el histórico.
   `MediaMatch.uri` pasó a ser `MediaMatch.path` (`String`, ruta real del archivo). Llamado
-  desde `WalletNotificationListener.onNotificationPosted`. Por ahora SOLO loguea lo que
-  encuentra (`ScoSecretariaLogger`) — no reproduce, copia ni reenvía nada (eso es 2d-2h,
-  pendiente).
+  desde `WalletNotificationListener.onNotificationPosted`, que desde v2.26 copia lo
+  encontrado a `filesDir/media/` y lo adjunta a la `WalletNotification` real (ver esa clase
+  más abajo) — ya no solo loguea. **v2.29:** `MEDIA_KEYWORDS` pasó de palabras sueltas
+  ("foto"/"audio"/"video") a las frases EXACTAS que genera WhatsApp — una palabra suelta
+  producía falsos positivos con mensajes de texto normal que solo la mencionaban. **v2.30:**
+  detección de documentos por el emoji fijo `📄` (`DOCUMENT_EMOJI`), ya que a diferencia de
+  foto/video/audio no hay una frase fija (WhatsApp pone el nombre real del archivo). **v2.31:**
+  `GROUP_SUMMARY_TITLE` (regex `"(N mensajes)"`/`"(N messages)"`) excluye por completo las
+  notificaciones-resumen de un grupo con varios mensajes sin leer — confirmado en vivo que su
+  "último mensaje" extraído puede ser uno VIEJO (días atrás) que igual dispara
+  `looksLikeNewMedia()` si menciona un documento/foto/etc., robándole a otra conversación el
+  archivo real que sí acababa de llegar (pasó con un audio y un PDF genuinos).
 - `TelegramClient.kt` — cliente mínimo (sin librerías) de la API HTTP de Telegram Bot:
   `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (con `timeoutSeconds`
   opcional desde v2.16 para long-polling real — conexión abierta hasta que llega un mensaje o
@@ -1292,7 +1785,10 @@ cada exclusión.
   `isUpdateProcessed`/`markUpdateProcessed` (un set de `update_id` ya vistos, local por
   dispositivo, tope 300). Motivo: al confirmar el offset ante Telegram, el servidor deja de
   entregar esos mensajes a CUALQUIER otro teléfono que use el mismo bot — el primero que
-  consultaba "se comía" los comandos y los demás nunca los veían.
+  consultaba "se comía" los comandos y los demás nunca los veían. **v2.36:** se borraron
+  `lastCsvSentAt`/`setLastCsvSentAt`/`lastMediaSentAt`/`setLastMediaSentAt` — el envío
+  periódico ya no marca "hasta dónde mandé" con una fecha, consume de las colas nuevas de
+  `WalletNotificationStore` (ver esa clase).
 - `TelegramSyncWorker.kt` — `Worker` de WorkManager que corre periódicamente (cada
   `intervalMinutes`, mínimo 15, default 30): envía el CSV del historial y revisa comandos como
   **respaldo** del long-polling en tiempo real (ver `WalletNotificationListener`, v2.16) — por
@@ -1302,7 +1798,13 @@ cada exclusión.
   veces. La lógica de los comandos en sí vive en `TelegramCommandHandler.kt`. Se arranca desde
   `MainActivity.onCreate`. Dependencia `androidx.work:work-runtime-ktx:2.11.2` agregada en
   `app/build.gradle.kts`. **v2.21:** `processIncomingCommands` también envuelve su `getUpdates`
-  en `withTimeout(20_000)`, mismo motivo que en `WalletNotificationListener`.
+  en `withTimeout(20_000)`, mismo motivo que en `WalletNotificationListener`. **v2.34:**
+  `sendPendingMedia()` (nueva) reenvía fotos/videos/audios/documentos guardados, generalizando
+  `TelegramClient.sendDocument` (ganó parámetro `mimeType`). **v2.36:** tanto
+  `sendPendingCsv()` como `sendPendingMedia()` dejaron de leer `WalletNotificationStore.
+  history()` (capada en 100) con una marca de tiempo — ahora consumen
+  `exportCsvQueue()`/`exportMediaQueue()` (sin ese límite), quitando cada ítem de la cola solo
+  cuando se resuelve de verdad (mandado, o descartado por no tener archivo/pesar demasiado).
 - `DisplayPreferences.kt` — todas las preferencias del usuario (switches, perfil de voz,
   velocidad, heartbeat, `deviceLabel` —nombre de sucursal, se genera un código alfanumérico
   aleatorio tipo `MS-7K2F9Q` si no fue personalizado, renombrable por Telegram con
@@ -1350,6 +1852,16 @@ cada exclusión.
   fijadas, en `SharedPreferences` bajo la clave `"pinned"`. `setNote(id, texto)` actualiza el
   campo `note` (nuevo en `WalletNotification`, persistido igual que `mediaPath` con
   `optString`/`JSONObject.NULL` para compatibilidad con historiales viejos sin ese campo).
+  **v2.36:** `add()` ahora TAMBIÉN agrega cada notificación a `exportCsvQueue()`/
+  `exportMediaQueue()` (nuevas, SIN el límite de 100 de `HISTORY` — solo un tope de seguridad
+  de 20.000) — `TelegramSyncWorker` las consume y las va vaciando con
+  `removeFromCsvQueue(ids)`/`removeFromMediaQueue(id)`. Motivo: el CSV/reenvío de medios
+  dependía antes de `history()`, así que si llegaban más de 100 notificaciones entre un envío
+  periódico y el siguiente, las más viejas se perdían del Historial ANTES de llegar a
+  Telegram — con estas colas independientes, ya no importa cuánto tarde el envío ni cuántas
+  notificaciones lleguen mientras tanto. `setMedia()` también actualiza la copia en
+  `exportMediaQueue()` para que un reintento exitoso (4s/10s después) no quede "invisible"
+  para el reenvío.
 - `BackupManager.kt` — backup/restauración en JSON de: preferencias, billeteras, apps
   generales, **y desde v2.13 también token+Chat ID+intervalo de Telegram** (sección
   `"telegram"`, a propósito SIN el nombre de sucursal — cada teléfono conserva el suyo). Es la

@@ -26,13 +26,21 @@ object TelegramClient {
         ok
     }.getOrDefault(false)
 
-    fun sendDocument(token: String, chatId: String, fileName: String, bytes: ByteArray, caption: String): Boolean = runCatching {
+    /**
+     * `mimeType` genérico (`application/octet-stream`) por defecto — sirve para cualquier
+     * archivo real (foto/video/audio/documento, ver `TelegramSyncWorker.sendPendingMedia`).
+     * El envío periódico del CSV pasa `"text/csv"` explícito. Telegram no exige que el MIME
+     * sea exacto para aceptar el archivo, pero ayuda a que el cliente de Telegram lo muestre
+     * mejor (ej. reproductor de video/audio en vez de un ícono de archivo genérico).
+     * Timeouts más generosos que `sendMessage` porque un video puede pesar varios MB.
+     */
+    fun sendDocument(token: String, chatId: String, fileName: String, bytes: ByteArray, caption: String, mimeType: String = "application/octet-stream"): Boolean = runCatching {
         val boundary = "----miSecretaria${System.currentTimeMillis()}"
         val url = URL("${base(token)}/sendDocument")
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
-            connectTimeout = 15000; readTimeout = 20000
+            connectTimeout = 15000; readTimeout = 60000
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
         conn.outputStream.use { out ->
@@ -45,7 +53,7 @@ object TelegramClient {
             writeField("caption", caption)
             out.write("--$boundary\r\n".toByteArray())
             out.write("Content-Disposition: form-data; name=\"document\"; filename=\"$fileName\"\r\n".toByteArray())
-            out.write("Content-Type: text/csv\r\n\r\n".toByteArray())
+            out.write("Content-Type: $mimeType\r\n\r\n".toByteArray())
             out.write(bytes)
             out.write("\r\n--$boundary--\r\n".toByteArray())
         }

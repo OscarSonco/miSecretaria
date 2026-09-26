@@ -61,30 +61,80 @@ object WhatsAppMediaScanner {
     // llegó casi al mismo tiempo. Las frases de abajo son las que WhatsApp realmente pone en
     // la notificación ("📷 Envió una foto.", "🎥 Envió un video. (0:06)", "🎤 Mensaje de voz
     // (0:07)") — muy poco probable que alguien las escriba tal cual en una conversación normal.
-    private val MEDIA_KEYWORDS = listOf(
-        "envió una foto", "sent a photo", "envió una imagen",
-        "envió un video", "sent a video",
-        "mensaje de voz", "voice message"
+    // v2.35: cada frase ahora sabe a qué TIPO pertenece (antes era una lista plana sin tipo,
+    // usada solo para decidir sí/no) — necesario para que `findNewMedia()` pueda priorizar la
+    // carpeta correcta en vez de tomar "lo primero que encuentre" sin importar el tipo real.
+    private val MEDIA_PHRASE_TYPES = listOf(
+        "envió una foto" to "image", "sent a photo" to "image", "envió una imagen" to "image",
+        "envió un video" to "video", "sent a video" to "video",
+        "mensaje de voz" to "audio", "voice message" to "audio",
     )
+    private val MEDIA_KEYWORDS = MEDIA_PHRASE_TYPES.map { it.first }
 
     // v2.30: los documentos no tienen frase fija (WhatsApp pone el nombre real del archivo),
     // así que se detectan por el emoji que SÍ es fijo en la notificación.
     private const val DOCUMENT_EMOJI = "📄"
 
+    // v2.37: confirmado en vivo (2026-09-25) que un video/foto ENVIADO CON UN TEXTO PROPIO
+    // (ej. "🎥 Ahora envío el monociclo con motociclista (0:15)") ya NO trae la frase fija
+    // "Envió un video."/"Envió una foto." — WhatsApp la reemplaza por el texto que la persona
+    // escribió, dejando SOLO el emoji (y, para video, la duración) como señal fija. Antes de
+    // este cambio, `MEDIA_PHRASE_TYPES` (frase exacta) era la única forma de detectar video/
+    // foto — un video con texto propio no disparaba el escaneo en absoluto. Se agrega el
+    // emoji como señal PRIMARIA (mismo principio que ya se usa para documentos desde v2.30:
+    // preferir la señal más específica que sobreviva un texto libre), con la frase exacta como
+    // respaldo. Para audio hay DOS emojis posibles según el origen (🎤 nota de voz grabada,
+    // 🎵 audio compartido como archivo — ver v2.32) — se agregan los dos.
+    private val EMOJI_TYPES = listOf(
+        DOCUMENT_EMOJI to "document",
+        "🎥" to "video",
+        "📷" to "image",
+        "🎤" to "audio",
+        "🎵" to "audio",
+    )
+
     // Por pedido explícito del usuario: los stickers (y GIFs) no cuentan como medio a detectar.
     private val EXCLUDED_KEYWORDS = listOf("sticker", "gif")
 
-    private val IGNORED_EXTENSIONS = setOf("nomedia", "tmp", "dat", "db", "journal", "ini", "log")
+    // v2.31: notificaciones "resumen" de un grupo con varios mensajes sin leer — WhatsApp les
+    // pone un título como "RedSonco 😎😎😎 (7 mensajes)". Confirmado en vivo (2026-09-25) que
+    // NO siempre llevan `FLAG_GROUP_SUMMARY` (el filtro de la línea de arriba en
+    // WalletNotificationListener no las agarra todas), y que Android las repuebla/reenvía
+    // varias veces sin que haya un mensaje genuinamente nuevo — el "último mensaje" que
+    // `latestMessageText()` extrae de ellas puede ser uno VIEJO (ej. un PDF de 12 días antes,
+    // sentado sin leer en un grupo silenciado). Si ese texto viejo menciona un documento/foto/
+    // video/audio, `looksLikeNewMedia()` disparaba un escaneo igual — y como el escaneo busca
+    // "lo que sea que haya en la carpeta ahora mismo", terminaba robándole a otra conversación
+    // el archivo real que sí acababa de llegar (confirmado: un audio y un PDF genuinos
+    // desaparecieron del Historial porque quedaron adjuntos a esta notificación resumen en vez
+    // de a la suya). Se excluye por completo de la detección de medios, sin importar lo que
+    // diga el texto — no hay forma de confiar en que sea "nuevo" de verdad.
+    private val GROUP_SUMMARY_TITLE = Regex("""\(\s*\d+\s+(mensajes|messages)\s*\)""", RegexOption.IGNORE_CASE)
+
+    // v2.33: se quitaron "db" y "log" de esta lista — pedido explícito del usuario, que
+    // recibe justo esas extensiones de sus empleados (bases de datos/reportes de caja chica
+    // para analizar). Esta lista se copió originalmente de `SoncoBot/WhatsAppWatcher.kt`
+    // (otro proyecto, con otro caso de uso) para descartar archivos temporales/internos de
+    // WhatsApp — pero ahí nunca hubo un caso real de negocio que necesitara justamente esas
+    // dos extensiones como documentos legítimos, y aquí sí. Las demás se dejan igual (no hay
+    // evidencia de que también bloqueen algo que el usuario necesite).
+    private val IGNORED_EXTENSIONS = setOf("nomedia", "tmp", "dat", "journal", "ini")
 
     private const val GENERIC_SCAN_MAX_DEPTH = 4
 
     // Carpetas reales de WhatsApp por tipo de medio (mismo mapeo que SoncoBot/WhatsAppWatcher.kt).
-    // "WhatsApp Audio" son audios compartidos (no notas de voz); se agrega igual por si acaso.
+    // v2.32: "audio" ahora revisa DOS carpetas — "WhatsApp Voice Notes" (notas de voz grabadas
+    // en el chat) Y "WhatsApp Audio" (archivos de audio COMPARTIDOS, ej. un .mp3 enviado como
+    // adjunto). Son carpetas distintas y reales en el teléfono (confirmado con `adb shell ls`:
+    // un .mp3 recién enviado apareció en "WhatsApp Audio", nunca en "WhatsApp Voice Notes") —
+    // antes de v2.32 solo se miraba la segunda, así que un audio compartido (no nota de voz)
+    // nunca se encontraba, aunque su notificación sí decía "Mensaje de voz" y disparaba el
+    // escaneo igual.
     private val WA_SUBDIRS = linkedMapOf(
-        "image" to "WhatsApp Images",
-        "video" to "WhatsApp Video",
-        "audio" to "WhatsApp Voice Notes",
-        "document" to "WhatsApp Documents",
+        "image" to listOf("WhatsApp Images"),
+        "video" to listOf("WhatsApp Video"),
+        "audio" to listOf("WhatsApp Voice Notes", "WhatsApp Audio"),
+        "document" to listOf("WhatsApp Documents"),
     )
 
     // Raíces de WhatsApp SIN el "/Media" final — porque desde que WhatsApp soporta varias
@@ -167,12 +217,27 @@ object WhatsAppMediaScanner {
 
     fun isWhatsApp(packageName: String) = packageName in WHATSAPP_PACKAGES
 
-    fun looksLikeNewMedia(title: String, text: String): Boolean {
+    fun looksLikeNewMedia(title: String, text: String): Boolean = expectedType(title, text) != null
+
+    /**
+     * v2.35: qué TIPO de medio anuncia esta notificación en particular ("image"/"video"/
+     * "audio"/"document", o `null` si no parece un medio nuevo) — antes solo existía
+     * `looksLikeNewMedia()` (sí/no), sin decir de qué tipo. Se necesita para que
+     * `findNewMedia()` busque PRIMERO en la carpeta correcta según lo que la notificación
+     * realmente anuncia, en vez de tomar el primer archivo que encuentre sin importar el tipo
+     * (confirmado en vivo, 2026-09-25, con un envío de 9 archivos casi simultáneos: una
+     * notificación de "Envió un video" terminó con una FOTO adjunta, y una de "Mensaje de voz"
+     * terminó con un VIDEO — ambas robadas por otro archivo real que llegó en la misma
+     * ventana de tiempo, del tipo que se buscaba primero por casualidad de orden, no por
+     * coincidir con lo que la notificación decía).
+     */
+    fun expectedType(title: String, text: String): String? {
+        if (GROUP_SUMMARY_TITLE.containsMatchIn(title)) return null
         val raw = "$title $text"
         val combined = raw.lowercase(Locale.ROOT)
-        if (EXCLUDED_KEYWORDS.any { combined.contains(it) }) return false
-        if (raw.contains(DOCUMENT_EMOJI)) return true
-        return MEDIA_KEYWORDS.any { combined.contains(it) }
+        if (EXCLUDED_KEYWORDS.any { combined.contains(it) }) return null
+        EMOJI_TYPES.firstOrNull { (emoji, _) -> raw.contains(emoji) }?.let { return it.second }
+        return MEDIA_PHRASE_TYPES.firstOrNull { (phrase, _) -> combined.contains(phrase) }?.second
     }
 
     /**
@@ -194,21 +259,34 @@ object WhatsAppMediaScanner {
      * Busca SOLO archivos modificados en la ventana [postTimeMs - windowBeforeMs,
      * postTimeMs + windowAfterMs] dentro de las carpetas reales de WhatsApp. Ya procesados
      * (por ruta) no se repiten entre llamadas.
+     *
+     * `preferredType` (v2.35): el tipo que la notificación en cuestión anuncia (ver
+     * `expectedType()`). El resultado sigue incluyendo TODOS los archivos nuevos de
+     * cualquier tipo encontrados en la ventana (para no perder archivos adicionales que
+     * lleguen casi al mismo tiempo — se guardan como notificaciones aparte, ver
+     * `WalletNotificationListener`), pero el ORDEN prioriza: primero los del tipo esperado,
+     * y dentro de cada tipo, el archivo cuya fecha de modificación esté más CERCA de
+     * `postTimeMs` — así el primero de la lista (el que se adjunta a ESTA notificación) es
+     * el más probable de ser el correcto, en vez de "lo que sea que haya encontrado primero
+     * el recorrido de carpetas" (antes ni siquiera miraba el tipo: una notificación de video
+     * podía terminar con una foto adjunta si la foto se encontraba primero).
      */
-    fun findNewMedia(context: Context, postTimeMs: Long, windowBeforeMs: Long = 30_000L, windowAfterMs: Long = 15_000L): List<MediaMatch> {
+    fun findNewMedia(context: Context, postTimeMs: Long, windowBeforeMs: Long = 30_000L, windowAfterMs: Long = 15_000L, preferredType: String? = null): List<MediaMatch> {
         val fromMs = postTimeMs - windowBeforeMs
         val toMs = postTimeMs + windowAfterMs
         val matches = mutableListOf<MediaMatch>()
         var dirsFound = 0
-        for ((type, subdir) in WA_SUBDIRS) {
-            val dirs = mediaDirsFor(subdir)
-            dirsFound += dirs.size
-            for (dir in dirs) {
-                for (f in filesIn(dir, extraDepth = 1)) {
-                    if (f.extension.lowercase(Locale.ROOT) in IGNORED_EXTENSIONS) continue
-                    val mtime = f.lastModified()
-                    if (mtime < fromMs || mtime > toMs) continue
-                    matches += MediaMatch(f.absolutePath, f.name, type, mtime)
+        for ((type, subdirs) in WA_SUBDIRS) {
+            for (subdir in subdirs) {
+                val dirs = mediaDirsFor(subdir)
+                dirsFound += dirs.size
+                for (dir in dirs) {
+                    for (f in filesIn(dir, extraDepth = 1)) {
+                        if (f.extension.lowercase(Locale.ROOT) in IGNORED_EXTENSIONS) continue
+                        val mtime = f.lastModified()
+                        if (mtime < fromMs || mtime > toMs) continue
+                        matches += MediaMatch(f.absolutePath, f.name, type, mtime)
+                    }
                 }
             }
         }
@@ -221,6 +299,12 @@ object WhatsAppMediaScanner {
             ScoSecretariaLogger.debug(context, "WhatsAppMediaScanner: ninguna carpeta de medios de WhatsApp accesible ni por ruta conocida ni por escaneo genérico")
         }
         return matches.filter { markIfNew(context, it.path) }
+            .sortedWith(
+                compareBy(
+                    { if (preferredType != null && it.type == preferredType) 0 else 1 },
+                    { kotlin.math.abs(it.lastModifiedMs - postTimeMs) },
+                )
+            )
     }
 
     /**

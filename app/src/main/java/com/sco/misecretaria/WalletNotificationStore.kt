@@ -17,6 +17,12 @@ object WalletNotificationStore {
     private const val SEEN = "seen"
     private const val PINNED = "pinned"
     private const val TRASH = "trash"
+    private const val EXPORT_CSV_QUEUE = "export_csv_queue"
+    private const val EXPORT_MEDIA_QUEUE = "export_media_queue"
+    // v2.36: salvavidas contra un crecimiento REALMENTE descontrolado (ej. Telegram caído por
+    // meses) — no es un límite operativo normal. En uso normal esta cola se vacía cada ciclo
+    // del worker (15-30 min), muy por debajo de esto.
+    private const val EXPORT_QUEUE_SAFETY_CAP = 20_000
     const val MAX_PINNED = 2
     private lateinit var context: Context
 
@@ -24,15 +30,35 @@ object WalletNotificationStore {
         context = appContext.applicationContext
     }
 
+    /**
+     * v2.36: además del Historial (`HISTORY`, capado en 100 — solo para mostrar en pantalla),
+     * cada notificación nueva entra también a dos colas de exportación SIN ese límite
+     * (`EXPORT_CSV_QUEUE`/`EXPORT_MEDIA_QUEUE`). Motivo: `TelegramSyncWorker` leía directo de
+     * `history()` con una marca de tiempo — si llegaban más de 100 notificaciones entre un
+     * envío periódico y el siguiente (día ocupado en una sucursal), las más viejas se perdían
+     * del `HISTORY` ANTES de que el worker llegara a mandarlas, y nunca se recuperaban ni en
+     * el CSV ni en Telegram. Las colas nuevas son independientes de lo que se ve en pantalla:
+     * un archivo puede desaparecer del Historial visible (por el límite de 100, o porque el
+     * usuario lo movió a la Papelera) y de todas formas seguir pendiente de exportar — es
+     * justo el comportamiento que se busca para un respaldo (sobrevivir aunque se "borre"
+     * localmente). Cada cola se vacía por su cuenta cuando `TelegramSyncWorker` efectivamente
+     * manda ese contenido (`removeFromCsvQueue`/`removeFromMediaQueue`), no por tiempo.
+     */
     @Synchronized
     fun add(notification: WalletNotification) {
         val pending = pending().toMutableList()
         val history = history().toMutableList()
+        val csvQueue = exportCsvQueue().toMutableList()
+        val mediaQueue = exportMediaQueue().toMutableList()
         pending.add(notification)
         history.add(0, notification)
+        csvQueue.add(notification)
+        mediaQueue.add(notification)
 
         save(PENDING, pending)
         save(HISTORY, history.take(100))
+        save(EXPORT_CSV_QUEUE, csvQueue.takeLast(EXPORT_QUEUE_SAFETY_CAP))
+        save(EXPORT_MEDIA_QUEUE, mediaQueue.takeLast(EXPORT_QUEUE_SAFETY_CAP))
     }
 
     @Synchronized
@@ -40,6 +66,26 @@ object WalletNotificationStore {
 
     @Synchronized
     fun history(): List<WalletNotification> = load(HISTORY)
+
+    @Synchronized
+    fun exportCsvQueue(): List<WalletNotification> = load(EXPORT_CSV_QUEUE)
+
+    @Synchronized
+    fun exportMediaQueue(): List<WalletNotification> = load(EXPORT_MEDIA_QUEUE)
+
+    /** Quita de la cola de exportación del CSV los ids que ya viajaron en un envío exitoso. */
+    @Synchronized
+    fun removeFromCsvQueue(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        save(EXPORT_CSV_QUEUE, exportCsvQueue().filterNot { it.id in ids })
+    }
+
+    /** Quita de la cola de exportación de medios un id ya reenviado a Telegram (o descartado
+     * porque nunca tuvo archivo, o porque pesa más de lo que Telegram permite). */
+    @Synchronized
+    fun removeFromMediaQueue(id: String) {
+        save(EXPORT_MEDIA_QUEUE, exportMediaQueue().filterNot { it.id == id })
+    }
 
     @Synchronized
     fun acknowledge(id: String) {
@@ -71,6 +117,10 @@ object WalletNotificationStore {
     fun setMedia(id: String, path: String, type: String) {
         save(HISTORY, history().map { if (it.id == id) it.copy(mediaPath = path, mediaType = type) else it })
         save(PENDING, pending().map { if (it.id == id) it.copy(mediaPath = path, mediaType = type) else it })
+        // Si el reintento encuentra el archivo DESPUÉS de que la notificación ya entró a la
+        // cola de exportación de medios, hay que actualizar esa copia también — si no, cuando
+        // el worker la revise seguiría viendo `mediaPath = null` y la descartaría sin enviarla.
+        save(EXPORT_MEDIA_QUEUE, exportMediaQueue().map { if (it.id == id) it.copy(mediaPath = path, mediaType = type) else it })
     }
 
     /** Papelera: "eliminar" desde el Historial no borra de verdad — mueve a esta lista, de

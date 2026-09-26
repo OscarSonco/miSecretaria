@@ -8,7 +8,6 @@ object TelegramConfig {
     private const val TOKEN = "bot_token"
     private const val CHAT_ID = "chat_id"
     private const val INTERVAL_MIN = "interval_min"
-    private const val LAST_CSV_SENT_AT = "last_csv_sent_at"
     private const val PROCESSED_UPDATE_IDS = "processed_update_ids"
 
     // BuildConfig.DEFAULT_BOT_TOKEN/DEFAULT_CHAT_ID solo vienen rellenos en el build "Interna"
@@ -24,9 +23,6 @@ object TelegramConfig {
      * debajo de 15 minutos (WorkManager lo redondea solo hacia arriba). */
     fun intervalMinutes(context: Context) = (get(context, INTERVAL_MIN, "30").toLongOrNull() ?: 30L).coerceAtLeast(15L)
     fun setIntervalMinutes(context: Context, value: Long) = put(context, INTERVAL_MIN, value.coerceAtLeast(15L).toString())
-
-    fun lastCsvSentAt(context: Context) = get(context, LAST_CSV_SENT_AT, "")
-    fun setLastCsvSentAt(context: Context, value: String) = put(context, LAST_CSV_SENT_AT, value)
 
     /**
      * Un solo bot compartido por varias sucursales: nunca se le confirma el offset a Telegram
