@@ -89,6 +89,41 @@ el usuario:
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
 
+### Tanda v2.50 (2026-09-30) — "Solo distancia/Mensaje completo" solo para apps de navegación
+
+🐛→✅ **Reportado por el usuario en vivo:** "no aparece esa opción [Mensaje completo/Solo
+Distancia] en mi celular, pero la misma versión sí aparece en mi Tablet". Causa: ese botón
+(y el de "Llamadas") se mostraban para TODAS las apps generales sin distinción — la fila de
+cada app llegó a tener 6 elementos (Switch + 4 botones + Quitar), y en una pantalla angosta
+(el celular) algunos quedaban fuera de vista sin hacer scroll horizontal (la tablet, con más
+ancho, los mostraba todos sin necesitar scroll) — mismo patrón de fondo ya documentado varias
+veces en este proyecto (v2.13, "Sincronizar ahora" invisible por lo mismo).
+- ✅ **Arreglo real, no solo cosmético:** el usuario aclaró que "Mensaje completo/Solo
+  distancia" (`titleOnly`) solo tiene sentido para apps de navegación — dio los `packageId`
+  reales de las suyas: Google Maps (`com.google.android.apps.maps`), "Localizador" (Google
+  Find My Device/Android Device Manager, `com.google.android.apps.adm`) y OsmAnd
+  (`net.osmand.plus`). `AppConfig.PAQUETES_NAVEGACION`/`esAppDeNavegacion()` (nuevos) — el
+  botón de `titleOnly` en Configuración ahora SOLO se muestra si el `packageId` de esa app
+  coincide con una de esas tres. Para cualquier otra app (WhatsApp, Tasks, Lite, etc.) el
+  botón directamente no aparece — no solo se arregla el "no cabe en pantalla", se elimina la
+  causa de fondo (menos botones por fila para la gran mayoría de apps, ya no hace falta
+  scroll en casi ningún caso).
+  El botón de "Llamadas" (`callsMuted`) SE QUEDA igual, para todas las apps — el usuario no
+  lo mencionó como parte de esta corrección, y sigue siendo relevante para cualquier app que
+  pueda mostrar notificaciones de llamada, no solo navegación.
+- **No se tocó** el motor de sincronización (`WalletAppSync`) ni el guardado de `titleOnly`
+  en sí — sigue siendo un campo normal de `AppRule`, solo se restringió DÓNDE se muestra el
+  botón para cambiarlo a mano. Si el admin sincronizara `titleOnly=true` para una app que no
+  es de navegación vía `miSecretaria_BilleterasAplicacion.txt`, el campo se guardaría igual
+  (sin validación adicional) pero no tendría efecto visible real (`NotificationSpeech.
+  distanceOnly()` ya devuelve el título tal cual como respaldo si no calza el patrón de
+  distancia) — no se consideró necesario bloquearlo ahí también, es un caso de uso que no se
+  espera que ocurra en la práctica.
+- **Sin confirmar todavía en vivo** — recién se instaló v2.50 por ADB. Falta confirmar en el
+  celular del usuario que ahora sí aparece (para Maps/Localizador/OsmAnd) sin necesitar
+  scroll, y que para las demás apps el botón ya no aparece en absoluto (ni en el celular ni
+  en la tablet).
+
 ### Tanda v2.49, etapa 2 (2026-09-30) — `/listado` muestra qué Billeteras/Apps tiene cada sucursal
 
 Segunda mitad del pedido del usuario en la Tanda v2.48: quería que `/listado` también
@@ -1850,7 +1885,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2049`, `versionName="2.49"` (ver `app/build.gradle.kts`).
+- **Versión actual:** `versionCode=2050`, `versionName="2.50"` (ver `app/build.gradle.kts`).
   Agrega la pantalla "Adjuntos" (v2.39), la captura de audio de "Ver una vez" (v2.40 —
   **confirmada en vivo, ver "Tanda v2.40"**: grabó 21s de audio real, aunque sin notificación
   para correlacionar en esa prueba puntual), control fino de voz por billetera/app + fix del
@@ -1861,17 +1896,17 @@ guardar todo en un historial dentro de la app.
   Firebase Hosting (v2.45-v2.46 — **CONFIRMADO en vivo de punta a punta**: el usuario borró
   una entrada a mano en la app, tocó "Sincronizar ahora" en el panel de Admin, y la app volvió
   a bloquearla — el ciclo completo PC→Firebase→teléfono funciona), `/help` movido entero a
-  la PC + teclado persistente de comandos, arreglando las respuestas repetidas (v2.47), y
+  la PC + teclado persistente de comandos, arreglando las respuestas repetidas (v2.47),
   Billeteras/Aplicaciones centralizadas con targeting por sucursal + `/listado` — etapa 1
-  (v2.48) y etapa 2, que agrega el resumen de configuración por sucursal a `/listado` (v2.49)
-  — ver esas Tandas, **ninguna de las dos confirmada todavía** — v2.41/2.42/2.43/2.47 tampoco
-  se probaron.
+  (v2.48) y etapa 2 con el resumen de configuración por sucursal (v2.49) —, y el botón "Solo
+  distancia/Mensaje completo" restringido a apps de navegación (v2.50 — **bug real reportado
+  en vivo**, ver esa Tanda; ninguna de v2.41/2.42/2.43/2.47/2.48/2.49 confirmada todavía).
   **Regla de instalación reiterada por el usuario (2026-09-30): por ahora SOLO por ADB al
   teléfono del usuario — sus sucursales están trabajando en este momento, NO correr
-  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.49 siguen sin publicar a propósito).
+  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.50 siguen sin publicar a propósito).
   Compila limpio, build Interna generada, **YA INSTALADA por ADB en el teléfono del usuario**.
   **v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, ver más abajo — el tag
-  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.49 aún no**, falta
+  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.50 aún no**, falta
   correr `release.sh` de nuevo cuando el usuario lo pida.
   **✅ DETECCIÓN DE MEDIOS DE WHATSAPP: MADURA Y CONFIRMADA EN VIVO (prueba exhaustiva
   2026-09-30, ver esa sección más abajo)** — 18 de 21 tipos probados sistemáticamente

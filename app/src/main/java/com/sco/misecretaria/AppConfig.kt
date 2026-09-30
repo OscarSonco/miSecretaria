@@ -29,6 +29,22 @@ object AppConfig {
     private const val PREFS = "app_config_v1"
     private const val KEY = "rules"
 
+    /**
+     * v2.50: apps de navegación donde tiene sentido el modo "solo distancia" (`titleOnly`) —
+     * pedido explícito del usuario, confirmado con los `packageId` reales de sus apps: Google
+     * Maps, "Localizador" (Google Find My Device / Android Device Manager) y OsmAnd. Para
+     * cualquier otra app (WhatsApp, Tasks, etc.) ese botón no tiene sentido y solo agregaba
+     * ruido a la fila — en un teléfono de pantalla angosta llegaba a empujar botones fuera de
+     * vista sin hacer scroll (reportado en vivo: "no aparece en mi celular, sí en mi tablet").
+     */
+    val PAQUETES_NAVEGACION = setOf(
+        "com.google.android.apps.maps",
+        "com.google.android.apps.adm",
+        "net.osmand.plus",
+    )
+
+    fun esAppDeNavegacion(packageId: String): Boolean = PAQUETES_NAVEGACION.any { it.equals(packageId, ignoreCase = true) }
+
     fun rules(context: Context): List<AppRule> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: return emptyList()
         val lines = if (raw.contains("\\n")) raw.split("\\n") else raw.split("\n")

@@ -115,11 +115,12 @@ significa que esa regla no va a detectar nada hasta que la corrijas).
 - **📞 Llamadas / Sin llamadas** (solo en Aplicaciones): con "Sin llamadas", las notificaciones
   de LLAMADA (ej. una llamada de WhatsApp) no se anuncian en voz alta — los mensajes normales
   de esa misma app se siguen leyendo igual.
-- **📍 Solo distancia / Mensaje completo** (solo en Aplicaciones, pensado para apps de
-  navegación como Google Maps): con "Solo distancia", se lee ÚNICAMENTE la distancia que trae
-  el título de la notificación ("90 metros"), sin el nombre de la app ni el destino/dirección
-  del cuerpo — útil para no escuchar "Maps, 90 metros, Matheus Pub, edificio Atahualpa..." a
-  cada paso mientras vas navegando.
+- **📍 Solo distancia / Mensaje completo** — con "Solo distancia", se lee ÚNICAMENTE la
+  distancia que trae el título de la notificación ("90 metros"), sin el nombre de la app ni
+  el destino/dirección del cuerpo — útil para no escuchar "Maps, 90 metros, Matheus Pub,
+  edificio Atahualpa..." a cada paso mientras vas navegando. **Desde v2.50, este botón solo
+  aparece en apps de navegación** (Google Maps, "Localizador"/Find My Device, OsmAnd) — en
+  el resto de Aplicaciones no se muestra, para no llenar la fila de botones que no aplican.
 
 Si una billetera nunca se detecta, lo más probable es que se agregó con el paquete vacío —
 bórrala con "Quitar" y vuelve a agregarla desde el selector.
