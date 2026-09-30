@@ -10,33 +10,16 @@ object BotTexts {
     const val CMD_NOTIFY = "notificar"
     const val CMD_NOTIFY_SCREEN = "notificarpantalla"
     const val CMD_RENAME = "renombrar"
-    const val CMD_HELP = "help"
-    const val CMD_START = "start"
 
-    // Estos dos NO los procesa la app — los escucha `csv_importer.py` en la PC del
-    // administrador (ver ese script). Se listan aquí SOLO para que aparezcan en el /help;
-    // si se renombran allá, hay que renombrarlos también aquí a mano (no hay una sola fuente
-    // de verdad entre Kotlin y Python para estos dos).
+    // v2.47: estos dos (y /help, /start) ya NO los procesa la app en absoluto — los escucha
+    // exclusivamente `csv_importer.py` en la PC del administrador (ver ese script, incluido
+    // el texto de ayuda equivalente a lo que era `help()` aquí, ya eliminada). No hay una
+    // sola fuente de verdad entre Kotlin y Python para estos nombres — si se renombran allá,
+    // hay que renombrarlos también aquí a mano.
     const val CMD_PANEL_ON = "panelon"
     const val CMD_PANEL_OFF = "paneloff"
 
     const val REMOTE_ALERT_WALLET = "Aviso remoto"
-
-    fun help(deviceLabel: String) =
-        "🤖 miSecretaria — comandos del bot:\n" +
-            "⚠️ Escribe todo en UN SOLO mensaje, no en varios seguidos.\n\n" +
-            "/$CMD_NOTIFY TODOS <mensaje>\nSolo AUDIO — lee el mensaje en voz alta, sin nada en pantalla.\n" +
-            "Ejemplo: /$CMD_NOTIFY TODOS Cerramos a las 8pm hoy\n\n" +
-            "/$CMD_NOTIFY_SCREEN TODOS <mensaje>\nAUDIO + PANTALLA — además lo muestra en pantalla completa o aviso flotante.\n" +
-            "Ejemplo: /$CMD_NOTIFY_SCREEN TODOS Vino el proveedor, revisen\n\n" +
-            "Con ambos puedes usar el nombre/código de una sucursal en vez de TODOS, para avisarle solo a esa.\n" +
-            "Ejemplo: /$CMD_NOTIFY $deviceLabel Reunión a las 3pm\n\n" +
-            "/$CMD_RENAME <código_actual> <nombre_nuevo>\nCambia el nombre de una sucursal (código/nombre debe coincidir exacto).\n" +
-            "Ejemplo: /$CMD_RENAME $deviceLabel Sucursal Centro\n\n" +
-            "/$CMD_PANEL_ON\nEnciende el panel web (miSecretaria.html) para ver la base de datos — solo funciona si el administrador tiene csv_importer.py corriendo en su PC.\n" +
-            "/$CMD_PANEL_OFF\nApaga ese panel web.\n\n" +
-            "/$CMD_HELP\nMuestra esta ayuda.\n\n" +
-            "Esta sucursal se llama: $deviceLabel"
 
     fun notifyUsageError() =
         "⚠️ Formato incorrecto. Todo en UN SOLO mensaje:\n" +

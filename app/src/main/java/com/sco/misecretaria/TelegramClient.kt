@@ -7,6 +7,18 @@ import java.net.URLEncoder
 
 data class TelegramUpdate(val updateId: Long, val chatId: String, val text: String)
 
+/**
+ * v2.44: offset a pasarle a `getUpdates` para pedir "las últimas N de la cola" en vez de
+ * `offset=0` ("todo lo no confirmado desde el principio") — confirmado en vivo (2026-09-30)
+ * que `offset=0` puede quedarse devolviendo SIEMPRE el update más viejo de la cola cuando hay
+ * 2+ pendientes, sin llegar nunca al más nuevo (un `/help` real nunca se vio mientras un
+ * `/panelon` anterior, ya procesado, seguía "tapando" la cola) — mismo bug ya visto y
+ * corregido antes en `csv_importer.py` (Python/PC, Tanda de 2026-09-25). 100 es generoso
+ * (normalmente hay 0-2 pendientes) sin costo real. Usado por `WalletNotificationListener`
+ * (long-poll en tiempo real) y `TelegramSyncWorker` (respaldo periódico) por igual.
+ */
+const val TELEGRAM_UPDATES_OFFSET = -100L
+
 /** Cliente mínimo de la API de Telegram Bot (sendMessage/sendDocument/getUpdates), sin librerías. */
 object TelegramClient {
     private fun base(token: String) = "https://api.telegram.org/bot$token"

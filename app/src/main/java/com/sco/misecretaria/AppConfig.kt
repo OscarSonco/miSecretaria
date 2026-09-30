@@ -67,6 +67,16 @@ object AppConfig {
         save(context, current + AppRule(name.trim(), packageId.trim(), true))
     }
 
+    /** v2.48: agrega o actualiza UNA regla por nombre (si existe, la reemplaza entera; si no,
+     * la agrega) — usado por `WalletAppSync` para sincronizar apps desde el archivo maestro
+     * del admin (`miSecretaria_BilleterasAplicacion.txt`) SIN afectar ninguna otra regla que
+     * ya exista localmente y no esté mencionada ahí. */
+    fun upsert(context: Context, rule: AppRule) {
+        val current = rules(context)
+        val exists = current.any { it.name.equals(rule.name, true) }
+        save(context, if (exists) current.map { if (it.name.equals(rule.name, true)) rule else it } else current + rule)
+    }
+
     /** Mismo criterio que `WalletConfig.detect`: paquete exacto si hay `packageId`, si no, palabra completa. */
     fun detect(context: Context, packageName: String, title: String, text: String): String? {
         val combinedText = "$title $text".lowercase(Locale.ROOT)

@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -170,15 +172,13 @@ private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP, TRASH, 
 
 @Composable private fun ScoSecretariaApp(activity: MainActivity) {
     var screen by remember { mutableStateOf(Screen.HOME) }
-    var adminUnlocked by remember { mutableStateOf(false) }
     when (screen) {
-        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, openTrash = { screen = Screen.TRASH }, openAttachments = { screen = Screen.ATTACHMENTS }, onAdminUnlocked = { adminUnlocked = true })
+        Screen.HOME -> HomeScreen(activity = activity, openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, openTrash = { screen = Screen.TRASH }, openAttachments = { screen = Screen.ATTACHMENTS })
         Screen.SETTINGS -> SettingsScreen(
             onBack = { screen = Screen.HOME },
             activity = activity,
             onPickWallet = { screen = Screen.PICK_WALLET },
-            onPickApp = { screen = Screen.PICK_APP },
-            adminUnlocked = adminUnlocked
+            onPickApp = { screen = Screen.PICK_APP }
         )
         Screen.READ -> ReadScreen({ screen = Screen.HOME })
         Screen.PICK_WALLET -> InstalledAppsScreen(target = PickerTarget.WALLET, onDone = { screen = Screen.SETTINGS })
@@ -236,8 +236,9 @@ enum class PickerTarget { WALLET, APP }
     } }
 }
 
-@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, openTrash: () -> Unit, openAttachments: () -> Unit, onAdminUnlocked: () -> Unit) {
+@Composable private fun HomeScreen(activity: MainActivity, openSettings: () -> Unit, openRead: () -> Unit, openTrash: () -> Unit, openAttachments: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var history by remember { mutableStateOf(WalletNotificationStore.history()) }
     var pinnedIds by remember { mutableStateOf(WalletNotificationStore.pinnedIds()) }
     var trashCount by remember { mutableStateOf(WalletNotificationStore.trash().size) }
@@ -253,6 +254,19 @@ enum class PickerTarget { WALLET, APP }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
+    // v2.42: el panel de Admin (sucursal/intervalo/audio "Ver una vez") ya no vive dentro de
+    // Configuración — pedido explícito del usuario, para que quede oculto del todo a
+    // cualquiera que no sepa el PIN, en vez de estar en una pantalla que todos ven (aunque
+    // algunos campos estuvieran enmascarados). Se abre apenas el PIN es correcto.
+    // v2.43: el panel también absorbe TODO lo de Telegram (Token/Chat ID/Guardar y activar/
+    // Enviar mensaje de prueba/Sincronizar ahora) y "Compartir Historial/CSV/Log" — pedido
+    // explícito del usuario; solo "Compartir Aplicación" se queda en Configuración.
+    var showAdminDialog by remember { mutableStateOf(false) }
+    var adminDeviceLabel by remember { mutableStateOf(DisplayPreferences.deviceLabel(context)) }
+    var adminInterval by remember { mutableStateOf(TelegramConfig.intervalMinutes(context).toString()) }
+    var adminTgToken by remember { mutableStateOf(TelegramConfig.botToken(context)) }
+    var adminTgChatId by remember { mutableStateOf(TelegramConfig.chatId(context)) }
+    var adminTgStatus by remember { mutableStateOf<String?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
@@ -408,6 +422,7 @@ enum class PickerTarget { WALLET, APP }
                         { pinInput = it.filter(Char::isDigit) },
                         label = { Text(stringResource(R.string.pin_label)) },
                         visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (pinError) Text(stringResource(R.string.pin_error), color = Color.Red, style = MaterialTheme.typography.bodySmall)
@@ -417,11 +432,97 @@ enum class PickerTarget { WALLET, APP }
                 TextButton(onClick = {
                     if (AdminAccess.verify(pinInput)) {
                         showPinDialog = false
-                        onAdminUnlocked()
+                        adminDeviceLabel = DisplayPreferences.deviceLabel(context)
+                        adminInterval = TelegramConfig.intervalMinutes(context).toString()
+                        adminTgToken = TelegramConfig.botToken(context)
+                        adminTgChatId = TelegramConfig.chatId(context)
+                        adminTgStatus = null
+                        showAdminDialog = true
                     } else pinError = true
                 }) { Text(stringResource(R.string.action_accept)) }
             },
             dismissButton = { TextButton(onClick = { showPinDialog = false }) { Text(stringResource(R.string.action_cancel)) } }
+        )
+    }
+    if (showAdminDialog) {
+        AlertDialog(
+            onDismissRequest = { showAdminDialog = false },
+            title = { Text(stringResource(R.string.admin_dialog_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    // v2.43: TODO lo de Telegram (nombre, token, chat id, intervalo, guardar,
+                    // probar, sincronizar) vive junto acá — pedido explícito del usuario, con
+                    // un solo botón "Guardar y activar" para las cuatro (antes había uno para
+                    // nombre/intervalo y otro para token/chatId, redundante en el mismo popup).
+                    Text(stringResource(R.string.telegram_section_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.telegram_section_hint), style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(adminDeviceLabel, { adminDeviceLabel = it }, label = { Text(stringResource(R.string.device_label_field)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(adminTgToken, { adminTgToken = it }, label = { Text(stringResource(R.string.telegram_token_field)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(adminTgChatId, { adminTgChatId = it }, label = { Text(stringResource(R.string.telegram_chatid_field)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        adminInterval,
+                        { adminInterval = it.filter(Char::isDigit) },
+                        label = { Text(stringResource(R.string.telegram_interval_field)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            DisplayPreferences.setDeviceLabel(context, adminDeviceLabel)
+                            TelegramConfig.setBotToken(context, adminTgToken)
+                            TelegramConfig.setChatId(context, adminTgChatId)
+                            TelegramConfig.setIntervalMinutes(context, adminInterval.toLongOrNull() ?: 30L)
+                            if (TelegramConfig.isConfigured(context)) TelegramSyncWorker.schedule(context) else TelegramSyncWorker.cancel(context)
+                            adminTgStatus = context.getString(R.string.telegram_status_saved)
+                        }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_save_activate)) }
+                        OutlinedButton(onClick = {
+                            adminTgStatus = context.getString(R.string.telegram_status_sending)
+                            scope.launch {
+                                val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    TelegramClient.sendMessage(adminTgToken, adminTgChatId, context.getString(R.string.telegram_test_message, adminDeviceLabel))
+                                }
+                                adminTgStatus = if (ok) context.getString(R.string.telegram_status_sent) else context.getString(R.string.telegram_status_send_failed)
+                            }
+                        }) { Text(stringResource(R.string.action_send_test)) }
+                    }
+                    OutlinedButton(onClick = {
+                        TelegramSyncWorker.runOnce(context)
+                        adminTgStatus = context.getString(R.string.telegram_status_syncing)
+                    }) { Text(stringResource(R.string.action_sync_now)) }
+                    if (adminTgStatus != null) Text(adminTgStatus!!, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(16.dp))
+                    Text(stringResource(R.string.audio_capture_section_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.audio_capture_section_hint), style = MaterialTheme.typography.bodySmall)
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                        Text(stringResource(R.string.audio_capture_unsupported), style = MaterialTheme.typography.bodySmall, color = Color.Red)
+                    } else {
+                        var captureArmed by remember { mutableStateOf(ViewOnceAudioCaptureService.isRunning) }
+                        LaunchedEffect(Unit) { while (true) { captureArmed = ViewOnceAudioCaptureService.isRunning; delay(1000) } }
+                        Text(
+                            stringResource(if (captureArmed) R.string.audio_capture_status_armed else R.string.audio_capture_status_disarmed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (captureArmed) AccentGreen else Color.Gray
+                        )
+                        if (captureArmed) {
+                            Button(onClick = { activity.disarmViewOnceAudioCapture() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))) { Text(stringResource(R.string.action_disarm_audio_capture)) }
+                        } else {
+                            Button(onClick = { activity.armViewOnceAudioCapture() }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_arm_audio_capture)) }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    // v2.43: Compartir Historial/CSV/Log se mueven aquí (pedido explícito del
+                    // usuario) — "Compartir Aplicación" es la ÚNICA que se queda en
+                    // Configuración (no tiene nada sensible, es solo el instalador de la app).
+                    Text(stringResource(R.string.admin_share_section_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.admin_share_section_hint), style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_share_history)) }
+                        Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_share_csv)) }
+                        Button(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_share_log)) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAdminDialog = false }) { Text(stringResource(R.string.action_back)) } }
         )
     }
     if (showDeleteSelectedConfirm) {
@@ -614,7 +715,7 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
     } }
 }
 
-@Composable private fun SettingsScreen(onBack: () -> Unit, activity: MainActivity, onPickWallet: () -> Unit, onPickApp: () -> Unit, adminUnlocked: Boolean) {
+@Composable private fun SettingsScreen(onBack: () -> Unit, activity: MainActivity, onPickWallet: () -> Unit, onPickApp: () -> Unit) {
     val context = LocalContext.current
     var rules by remember { mutableStateOf(WalletConfig.rules(context)) }
     var appRules by remember { mutableStateOf(AppConfig.rules(context)) }
@@ -628,11 +729,6 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateChecked by remember { mutableStateOf(false) }
     var blockedPhrases by remember { mutableStateOf(AdFilterConfig.list(context)) }
-    var deviceLabel by remember { mutableStateOf(DisplayPreferences.deviceLabel(context)) }
-    var tgToken by remember { mutableStateOf(TelegramConfig.botToken(context)) }
-    var tgChatId by remember { mutableStateOf(TelegramConfig.chatId(context)) }
-    var tgInterval by remember { mutableStateOf(TelegramConfig.intervalMinutes(context).toString()) }
-    var tgStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val blue = ButtonDefaults.buttonColors(containerColor = AccentBlue)
     BackHandler(onBack = onBack)
@@ -695,11 +791,9 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
         Slider(value = speechRate, onValueChange = { speechRate = it; DisplayPreferences.setSpeechRateMultiplier(context, it) }, valueRange = 0.5f..2.0f, steps = 14)
         TextButton(onClick = { runCatching { context.startActivity(Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) } }) { Text(stringResource(R.string.action_install_voices)) }
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.txt", WalletNotificationStore.exportText()) }, colors = blue) { Text(stringResource(R.string.action_share_history)) }
-            Button(onClick = { activity.share("${AppInfo.REPORT_BASENAME}.csv", WalletNotificationStore.exportCsv(), "text/csv") }, colors = blue) { Text(stringResource(R.string.action_share_csv)) }
-        }
-        Button(onClick = { activity.share(AppInfo.LOG_EXPORT_NAME, ScoSecretariaLogger.read(context)) }, colors = blue) { Text(stringResource(R.string.action_share_log)) }
+        // v2.43: "Compartir Historial/CSV/Log" se mueven al panel de Admin (pedido explícito
+        // del usuario) — esta es la ÚNICA que se queda aquí, sin PIN, porque no expone nada
+        // sensible (es solo el instalador de la app, para pasarla a otro teléfono).
         Button(onClick = { activity.shareApk() }, colors = blue) { Text(stringResource(R.string.action_share_apk)) }
         Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.backup_section_title), style = MaterialTheme.typography.titleMedium)
@@ -752,63 +846,10 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
         } }
         Button(onClick = onPickApp, colors = blue) { Text(stringResource(R.string.action_add_app)) }
         Spacer(Modifier.height(20.dp))
-        Text(stringResource(R.string.telegram_section_title), style = MaterialTheme.typography.titleMedium)
-        Text(stringResource(R.string.telegram_section_hint), style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(deviceLabel, { deviceLabel = it }, label = { Text(stringResource(R.string.device_label_field)) }, modifier = Modifier.fillMaxWidth())
-        if (adminUnlocked) {
-            OutlinedTextField(tgToken, { tgToken = it }, label = { Text(stringResource(R.string.telegram_token_field)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(tgChatId, { tgChatId = it }, label = { Text(stringResource(R.string.telegram_chatid_field)) }, modifier = Modifier.fillMaxWidth())
-        } else {
-            Text(stringResource(R.string.telegram_token_status, if (tgToken.isBlank()) stringResource(R.string.status_not_configured) else stringResource(R.string.status_configured_masked)), style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.telegram_chatid_status, if (tgChatId.isBlank()) stringResource(R.string.status_not_configured) else stringResource(R.string.status_configured_masked)), style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.telegram_masked_hint), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-        }
-        OutlinedTextField(tgInterval, { tgInterval = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.telegram_interval_field)) }, modifier = Modifier.fillMaxWidth())
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                DisplayPreferences.setDeviceLabel(context, deviceLabel)
-                TelegramConfig.setBotToken(context, tgToken)
-                TelegramConfig.setChatId(context, tgChatId)
-                TelegramConfig.setIntervalMinutes(context, tgInterval.toLongOrNull() ?: 30L)
-                if (TelegramConfig.isConfigured(context)) TelegramSyncWorker.schedule(context) else TelegramSyncWorker.cancel(context)
-                tgStatus = context.getString(R.string.telegram_status_saved)
-            }, colors = blue) { Text(stringResource(R.string.action_save_activate)) }
-            OutlinedButton(onClick = {
-                tgStatus = context.getString(R.string.telegram_status_sending)
-                scope.launch {
-                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TelegramClient.sendMessage(tgToken, tgChatId, context.getString(R.string.telegram_test_message, deviceLabel)) }
-                    tgStatus = if (ok) context.getString(R.string.telegram_status_sent) else context.getString(R.string.telegram_status_send_failed)
-                }
-            }) { Text(stringResource(R.string.action_send_test)) }
-        }
-        Spacer(Modifier.height(6.dp))
-        OutlinedButton(onClick = {
-            TelegramSyncWorker.runOnce(context)
-            tgStatus = context.getString(R.string.telegram_status_syncing)
-        }) { Text(stringResource(R.string.action_sync_now)) }
-        if (tgStatus != null) Text(tgStatus!!, style = MaterialTheme.typography.bodySmall)
-        if (adminUnlocked) {
-            Spacer(Modifier.height(20.dp))
-            Text(stringResource(R.string.audio_capture_section_title), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.audio_capture_section_hint), style = MaterialTheme.typography.bodySmall)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                Text(stringResource(R.string.audio_capture_unsupported), style = MaterialTheme.typography.bodySmall, color = Color.Red)
-            } else {
-                var captureArmed by remember { mutableStateOf(ViewOnceAudioCaptureService.isRunning) }
-                LaunchedEffect(Unit) { while (true) { captureArmed = ViewOnceAudioCaptureService.isRunning; delay(1000) } }
-                Text(
-                    stringResource(if (captureArmed) R.string.audio_capture_status_armed else R.string.audio_capture_status_disarmed),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (captureArmed) AccentGreen else Color.Gray
-                )
-                if (captureArmed) {
-                    Button(onClick = { activity.disarmViewOnceAudioCapture() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))) { Text(stringResource(R.string.action_disarm_audio_capture)) }
-                } else {
-                    Button(onClick = { activity.armViewOnceAudioCapture() }, colors = blue) { Text(stringResource(R.string.action_arm_audio_capture)) }
-                }
-            }
-        }
-        Spacer(Modifier.height(20.dp))
+        // v2.43: TODA la sección de Telegram (nombre, token, chat id, intervalo, guardar,
+        // probar, sincronizar) se mueve al panel de Admin — pedido explícito del usuario, para
+        // que no quede nada de esto visible ni editable sin el PIN. Ver diálogo de Admin en
+        // `HomeScreen`.
         Text(stringResource(R.string.ads_section_title), style = MaterialTheme.typography.titleMedium)
         if (blockedPhrases.isEmpty()) {
             Text(stringResource(R.string.ads_section_empty), style = MaterialTheme.typography.bodySmall)

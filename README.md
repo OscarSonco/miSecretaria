@@ -134,11 +134,14 @@ bórrala con "Quitar" y vuelve a agregarla desde el selector.
 
 ### Compartir
 
-- **Compartir Historial / CSV / Log**: manda el contenido como archivo adjunto por cualquier
-  app (WhatsApp, correo, Bluetooth, etc.), útil para revisar o respaldar fuera del teléfono.
 - **Compartir Aplicación**: comparte el propio instalador (APK) de miSecretaria para que otra
   persona lo instale sin necesidad de internet — sirve para pasarla a otro teléfono de la
   misma sucursal, por ejemplo.
+
+**Compartir Historial / CSV / Log** (desde v2.43) manda el contenido como archivo adjunto por
+cualquier app (WhatsApp, correo, Bluetooth, etc.) — como sí contienen datos reales de
+notificaciones/pagos, viven en el **panel de Admin** (ver la guía del administrador más abajo),
+no aquí.
 
 ## Actualizaciones
 
@@ -171,8 +174,9 @@ algo que se supone se ve una sola vez).
   quien te lo mande como un archivo normal, no "Ver una vez".
 - **Audio "Ver una vez": función experimental nueva (v2.40), para uso interno con
   empleados.** A diferencia de foto/video, el audio SÍ se puede capturar (la protección de
-  arriba es solo visual). En Configuración → PIN de administrador → "🎙️ Audio 'Ver una vez'"
-  hay un botón para **armar la grabación**: pide permiso de micrófono y, después, el diálogo
+  arriba es solo visual). Toca 3 veces el logo de la pantalla principal, ingresa el PIN, y en
+  el panel de Admin que se abre busca "🎙️ Audio 'Ver una vez'" — hay un botón para **armar
+  la grabación**: pide permiso de micrófono y, después, el diálogo
   del sistema de "grabación de pantalla" (aunque solo se use para audio — es el mismo permiso
   que exige Android para este tipo de captura). Mientras está armada, si alguien reproduce un
   mensaje de voz "Ver una vez" de WhatsApp, la app intenta grabarlo y guardarlo junto a la
@@ -201,19 +205,22 @@ actualizaciones, y las herramientas que corren en tu computadora (no en los tel�
 ## PIN de administrador
 
 Toca **3 veces seguidas** el logo (junto a "miSecretaria Vx.x" en la pantalla principal) para
-que aparezca el diálogo de PIN. El PIN por defecto es **230985**. Al ingresarlo correctamente,
-el Token y Chat ID de Telegram quedan visibles y editables en Configuración durante esa
-sesión (se vuelve a tapar si cierras y reabres la app). El resto de la Configuración
-(billeteras, voz, avisos, etc.) siempre está disponible, con o sin PIN — el PIN solo protege el
-Token/Chat ID para que el personal de sucursal no pueda verlos ni cambiarlos.
+que aparezca el diálogo de PIN (con teclado numérico, desde v2.42). El PIN por defecto es
+**230985**. Al ingresarlo correctamente se abre el **panel de Admin**, con TODO lo sensible en
+un solo lugar (desde v2.43): nombre de sucursal/dispositivo, Token y Chat ID de Telegram,
+intervalo, "Guardar y activar"/"Enviar mensaje de prueba"/"Sincronizar ahora", "Audio 'Ver una
+vez'", y "Compartir Historial/CSV/Log". Nada de esto aparece en Configuración bajo ninguna
+condición — el resto de la Configuración (billeteras, voz, avisos, "Compartir Aplicación",
+etc.) siempre está disponible, con o sin PIN.
 
 ## Configurar el bot de Telegram
 
 Permite que la app te mande por Telegram un CSV periódico con las notificaciones nuevas de
 cada sucursal, y que tú le mandes avisos a una o todas las sucursales desde tu chat. Los
-comandos (`/notificar`, `/renombrar`, `/help`) se procesan casi al instante mientras el
-teléfono tenga el servicio de notificaciones activo — no hace falta esperar ni tocar
-"Sincronizar ahora" para eso (ese botón sigue sirviendo para el CSV y como respaldo).
+comandos `/notificar` y `/renombrar` se procesan casi al instante mientras el teléfono tenga
+el servicio de notificaciones activo — no hace falta esperar ni tocar "Sincronizar ahora"
+para eso (ese botón sigue sirviendo para el CSV y como respaldo). **`/help` es distinto desde
+v2.47:** lo responde tu PC (`csv_importer.py`), no los teléfonos — ver más abajo.
 
 1. Habla con **@BotFather** en Telegram, crea un bot nuevo y copia el **Token** que te da
    (una cadena larga con dos puntos en el medio, por ejemplo
@@ -223,17 +230,20 @@ teléfono tenga el servicio de notificaciones activo — no hace falta esperar n
 3. Para obtener tu **Chat ID**, abre en el navegador (reemplazando `<TOKEN>` por el token real):
    `https://api.telegram.org/bot<TOKEN>/getUpdates` y busca el número dentro de
    `"chat":{"id": ...}`.
-4. En la app, toca 3 veces el logo de la pantalla principal, ingresa tu PIN, y ve a
-   Configuración → Telegram: pega el **Token del bot** y el **Chat ID**, ponle un nombre a
-   esta sucursal/dispositivo (o deja el código alfanumérico automático) y presiona
-   **"Guardar y activar"**.
+4. En la app, toca 3 veces el logo de la pantalla principal, ingresa tu PIN. En el panel de
+   Admin que se abre, pega el **Token del bot** y el **Chat ID**, ponle un nombre a esta
+   sucursal/dispositivo (o deja el código alfanumérico automático), ajusta el intervalo si
+   quieres, y presiona **"Guardar y activar"** — un solo botón guarda las cuatro cosas.
 5. Usa **"Enviar mensaje de prueba"** para confirmar que quedó bien conectado.
 6. Usa **"Sincronizar ahora"** para revisar comandos pendientes y mandar el CSV al instante,
    sin esperar el intervalo configurado — útil para probar que todo funciona.
 
-**Si el bot no responde a ningún comando (ni `/help`):**
-- Revisa que Token y Chat ID estén realmente guardados (toca "Sincronizar ahora" y espera unos
-  segundos).
+**Si el bot no responde a ningún comando:**
+- Si es `/help` específicamente: revisa que `csv_importer.py` esté corriendo en tu PC — desde
+  v2.47 es el ÚNICO que responde ese comando (antes respondía cada teléfono por separado, lo
+  que generaba una respuesta repetida por cada sucursal).
+- Para los demás comandos: revisa que Token y Chat ID estén realmente guardados (toca
+  "Sincronizar ahora" y espera unos segundos).
 - Ve a Ajustes del sistema → Batería → miSecretaria → "Sin restricciones". Algunos teléfonos
   (sobre todo Tecno/Infinix/Xiaomi y similares) matan las tareas en segundo plano por defecto.
 - Si mandaste el comando bien pero de todos modos nada pasa, revisa que lo hayas escrito TODO
@@ -249,7 +259,12 @@ sintaxis, quiere decir que sí está funcionando — solo el formato del comando
 separados, el bot no reconoce ninguno de los dos y no hace nada (no te avisa del error salvo
 que ya tengas v2.15+, que sí te responde con la sintaxis correcta si te equivocas).
 
-- `/help` (o `/start`) — te devuelve la lista completa de comandos.
+- `/help` (o `/start`) — te devuelve la lista completa de comandos, con un teclado de botones
+  persistente para los que quieras (algunos, como `/notificar`, necesitan que completes el
+  mensaje a mano después de tocar el botón — Telegram no permite que un bot autocomplete el
+  campo de texto). **Este comando lo procesa tu PC (`csv_importer.py`), no los teléfonos** —
+  tiene que estar corriendo ahí para que responda (ver "Configurar el bot de Telegram"
+  arriba). Los demás comandos de esta lista SÍ los procesan los teléfonos, normal.
 - `/notificar TODOS <mensaje>` — **solo audio**: lee el mensaje en voz alta en todas las
   sucursales, sin nada en pantalla. Ejemplo: `/notificar TODOS Cerramos a las 8pm hoy`
 - `/notificarpantalla TODOS <mensaje>` — **audio + pantalla**: además de leerlo, lo muestra en
@@ -260,11 +275,75 @@ que ya tengas v2.15+, que sí te responde con la sintaxis correcta si te equivoc
   avisarle solo a esa. Ejemplo: `/notificar MS-7K2F9Q Reunión a las 3pm`
 - `/renombrar <código_actual> <nombre_nuevo>` — si una sucursal se quedó con el código
   alfanumérico automático (ej. `MS-7K2F9Q`) y quieres darle un nombre más claro, así se lo
-  cambias sin tocar el teléfono. Ejemplo: `/renombrar MS-7K2F9Q Sucursal Centro`
+  cambias sin tocar el teléfono. Ejemplo: `/renombrar MS-7K2F9Q Sucursal Centro`. El cambio
+  queda GUARDADO en ese teléfono (no es algo que la PC solo "recuerde") — desde ese momento
+  usa el nombre nuevo para todo, incluso después de cerrar la app o reiniciar el equipo. Si
+  ya usaste el nombre viejo en algún lado (ej. en `destino` de
+  `miSecretaria_BilleterasAplicacion.txt`, ver más abajo), acuérdate de actualizarlo ahí
+  también — ese teléfono deja de responder a su nombre anterior.
+- `/listado` — lista todas las sucursales conocidas (de tu base de datos local) y hace cuánto
+  se vieron activas (🟢 si mandaron algo en las últimas 48h, ⚪ si no), y además un resumen de
+  su Billeteras/Apps: si alguna está ❌ apagada o 🔇 sin voz te lo dice explícito (para que
+  puedas detectar a tiempo si un empleado nuevo configuró algo mal, antes de perder
+  facturas/reportes/balances); si todo está normal, dice "✅ todas activas y con voz" en vez
+  de listarlas una por una. **Lo procesa tu PC**, igual que `/help` — ningún teléfono puede
+  responder esto por su cuenta, porque cada uno solo conoce su propia configuración. Útil
+  también para saber qué nombres exactos usar en `destino` (ver siguiente sección).
 - `/panelon` / `/paneloff` — enciende/apaga el panel web (`miSecretaria.html`) para ver la base
-  de datos local. Estos dos **no los procesan los teléfonos** — los escucha tu computadora
-  (`csv_importer.py` tiene que estar corriendo ahí). Ver "Ver el historial en un panel web" más
-  abajo.
+  de datos local. Estos dos (y `/help`/`/listado`) **no los procesan los teléfonos** — los
+  escucha tu computadora (`csv_importer.py` tiene que estar corriendo ahí). Ver "Ver el
+  historial en un panel web" más abajo.
+
+## Publicidad bloqueada centralizada (`miSecretaria_PublicidadBloqueada.txt`)
+
+Cada teléfono puede marcar publicidad como bloqueada a mano (ver "🚫 Marcar como publicidad"
+en la guía de usuario), pero si quieres que la MISMA lista aplique en todas tus sucursales
+sin repetir el trabajo en cada teléfono:
+
+1. Abre `miSecretaria_PublicidadBloqueada.txt` en la carpeta del proyecto (tiene el formato
+   explicado en sus propios comentarios: una línea `Billetera|Frase` por entrada).
+2. Agrega, edita o borra líneas y guarda el archivo.
+3. Con `csv_importer.py` corriendo (ver más abajo), en menos de un minuto lo publica
+   automáticamente en Firebase Hosting. Cada teléfono lo descarga solo en su próximo ciclo
+   periódico (o tocando "Sincronizar ahora" en el panel de Admin) y reemplaza su lista local
+   completa — si quitaste una frase del archivo, también se quita en los teléfonos, no solo
+   se agregan las nuevas.
+
+No hace falta reiniciar nada en los teléfonos ni en el script para que tome efecto — solo
+guardar el archivo.
+
+## Billeteras/Aplicaciones centralizadas (`miSecretaria_BilleterasAplicacion.txt`)
+
+Para agregar una billetera/app nueva (ej. una app de un proveedor que quieras que todos tus
+empleados instalen) o ajustar On/Off, voz, nombre, llamadas o modo — sin entrar a cada
+teléfono uno por uno. **A diferencia de "Publicidad bloqueada", esto NUNCA borra ni pisa una
+billetera/app que ya tengas configurada y que el archivo no mencione** — cada línea se
+APLICA puntualmente (agregar, modificar o quitar UNA regla), nunca reemplaza todo.
+
+1. Manda `/listado` a tu bot para ver los nombres exactos de tus sucursales.
+2. Abre `miSecretaria_BilleterasAplicacion.txt` en la carpeta del proyecto — el formato
+   completo (10 campos) está explicado en sus propios comentarios, con dos ejemplos reales.
+3. Escribe una línea por cambio. La columna `destino` decide a quién le llega: `TODOS`, o uno
+   o varios nombres de sucursal separados por coma (los mismos que te dio `/listado`) — así
+   puedes darle una billetera/app solo a ciertos empleados (ej. un Jefe) sin tocar al resto.
+4. Guarda el archivo — con `csv_importer.py` corriendo, en menos de un minuto se publica y
+   cada teléfono de destino la aplica en su próximo ciclo (o con "Sincronizar ahora").
+
+**Ejemplo:** para agregar la app de un proveedor a todos:
+```
+app|BEES Bolivia|TODOS|definir|com.abinbev.android.tapwiser.beesBolivia|on|on|on|on|normal
+```
+
+## ¿Puedo vaciar el chat del bot en Telegram?
+
+**Recomendado: no.** Aunque los CSV ya están a salvo en `miSecretaria.db` una vez importados,
+la multimedia (fotos/videos/audios/documentos) NO se guarda en ninguna base de datos — el
+chat de Telegram es su ÚNICA copia fuera del teléfono. Si la vacías, el único respaldo que
+queda es el del propio teléfono (justo el que se puede perder si un empleado borra la app,
+resetea el equipo, o se le daña — el mismo riesgo que esta función existe para cubrir). Dejar
+todo en Telegram, sin borrar nada, mantiene tu respaldo completo sin ocupar espacio en tu PC —
+el chat de Telegram es el archivo histórico; tu base de datos local solo necesita lo
+necesario para el día a día.
 
 ## Repartir la app a varias sucursales
 

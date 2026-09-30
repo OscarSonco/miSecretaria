@@ -30,6 +30,14 @@ object AdFilterConfig {
         save(context, list(context).filterNot { it.wallet.equals(wallet, true) && it.phrase.equals(phrase, true) })
     }
 
+    /** v2.45: reemplaza la lista COMPLETA — a diferencia de `add()`, que solo suma, esto deja
+     * la lista local IDÉNTICA a la recibida (si el admin quitó una frase vieja de su archivo
+     * maestro, también se quita aquí, no solo se agregan las nuevas). Usado por el comando de
+     * sincronización `/publicidadsync` de Telegram (ver `TelegramCommandHandler`). */
+    fun replaceAll(context: Context, phrases: List<BlockedPhrase>) {
+        save(context, phrases)
+    }
+
     fun isBlocked(context: Context, wallet: String, message: String): Boolean {
         val lowerMsg = message.lowercase(Locale.ROOT)
         return list(context).any { it.wallet.equals(wallet, true) && lowerMsg.contains(it.phrase.lowercase(Locale.ROOT)) }

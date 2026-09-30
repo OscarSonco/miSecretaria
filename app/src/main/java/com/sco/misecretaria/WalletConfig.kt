@@ -62,6 +62,16 @@ object WalletConfig {
         save(context, current + WalletRule(name.trim(), packageId.trim(), true))
     }
 
+    /** v2.48: agrega o actualiza UNA regla por nombre (si existe, la reemplaza entera; si no,
+     * la agrega) — usado por `WalletAppSync` para sincronizar billeteras desde el archivo
+     * maestro del admin (`miSecretaria_BilleterasAplicacion.txt`) SIN afectar ninguna otra
+     * regla que ya exista localmente y no esté mencionada ahí. */
+    fun upsert(context: Context, rule: WalletRule) {
+        val current = rules(context)
+        val exists = current.any { it.name.equals(rule.name, true) }
+        save(context, if (exists) current.map { if (it.name.equals(rule.name, true)) rule else it } else current + rule)
+    }
+
     /**
      * Si la regla tiene `packageId`, exige coincidencia EXACTA de paquete (no substring de
      * título/texto: evita falsos positivos como "pizzas" conteniendo "zas"). Solo si el

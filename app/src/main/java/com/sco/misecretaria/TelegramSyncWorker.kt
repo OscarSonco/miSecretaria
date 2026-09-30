@@ -48,12 +48,21 @@ class TelegramSyncWorker(context: Context, params: WorkerParameters) : Coroutine
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         runCatching {
             WalletNotificationStore.init(applicationContext)
+            // v2.45/v2.48: independientes de Telegram a propósito — corren siempre que este
+            // worker corra, aunque más abajo el resto del ciclo se salte por falta de
+            // token/chatId.
+            AdFilterSync.syncFromRemote(applicationContext)
+            WalletAppSync.syncFromRemote(applicationContext)
             val token = TelegramConfig.botToken(applicationContext)
             val chatId = TelegramConfig.chatId(applicationContext)
             if (token.isBlank() || chatId.isBlank()) return@withContext Result.success()
 
             sendPendingCsv(token, chatId)
             sendPendingMedia(token, chatId)
+            // v2.49 (etapa 2): reporte de Billeteras/Apps actuales, solo si cambió desde el
+            // último envío — ver `ConfigReportSync` para el porqué (permite que `/listado`
+            // detecte configuraciones mal hechas en un teléfono nuevo).
+            ConfigReportSync.sendIfChanged(applicationContext, token, chatId)
             processIncomingCommands(token, chatId)
         }
         Result.success()
@@ -116,16 +125,24 @@ class TelegramSyncWorker(context: Context, params: WorkerParameters) : Coroutine
     }
 
     /**
-     * `offset=0` a propósito: NO confirma nada ante Telegram, así el mismo lote de comandos
-     * sigue disponible para todos los demás teléfonos que comparten este bot (ver
-     * `TelegramConfig.isUpdateProcessed`). El filtro de repetidos es local, por dispositivo, y
-     * es el mismo que usa el polling en tiempo real, así que no hay doble procesamiento.
+     * Offset negativo a propósito ("las últimas N de la cola"): NO confirma nada ante
+     * Telegram, así el mismo lote de comandos sigue disponible para todos los demás teléfonos
+     * que comparten este bot (ver `TelegramConfig.isUpdateProcessed`). El filtro de repetidos
+     * es local, por dispositivo, y es el mismo que usa el polling en tiempo real, así que no
+     * hay doble procesamiento.
+     *
+     * v2.44: antes usaba `offset=0` — confirmado en vivo (2026-09-30) que con 2+ updates
+     * pendientes en la cola real, `offset=0` devolvía SIEMPRE el más viejo, nunca llegaba al
+     * más nuevo (un `/help` se quedó sin responder mientras un `/panelon` anterior, ya
+     * procesado, seguía "tapando" la cola). Mismo bug ya visto y corregido en
+     * `csv_importer.py` (Python/PC) — ver `TELEGRAM_UPDATES_OFFSET` en `TelegramClient.kt`
+     * para el diagnóstico completo.
      */
     private suspend fun processIncomingCommands(token: String, chatId: String) {
         // Mismo resguardo que en WalletNotificationListener: si `getUpdates` se queda colgado
         // (confirmado en vivo que puede pasar), que este ciclo del respaldo se rinda a los 20s
         // en vez de bloquear el worker indefinidamente.
-        val updates = runCatching { withTimeout(20_000L) { TelegramClient.getUpdates(token, offset = 0) } }.getOrDefault(emptyList())
+        val updates = runCatching { withTimeout(20_000L) { TelegramClient.getUpdates(token, offset = TELEGRAM_UPDATES_OFFSET) } }.getOrDefault(emptyList())
         val deviceLabel = DisplayPreferences.deviceLabel(applicationContext)
         for (update in updates) {
             if (!TelegramConfig.markUpdateIfNew(applicationContext, update.updateId)) continue

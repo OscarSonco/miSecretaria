@@ -89,6 +89,358 @@ el usuario:
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
 
+### Tanda v2.49, etapa 2 (2026-09-30) — `/listado` muestra qué Billeteras/Apps tiene cada sucursal
+
+Segunda mitad del pedido del usuario en la Tanda v2.48: quería que `/listado` también
+mostrara qué billeteras/apps tiene configuradas cada sucursal, específicamente para detectar
+si un empleado nuevo configuró algo mal (ej. una billetera apagada por accidente) ANTES de
+perder facturas/reportes/balances — no después.
+
+- ✅ **`ConfigReportSync.kt` (nuevo, Android)** — cada teléfono manda su configuración ACTUAL
+  de `WalletConfig`/`AppConfig` (nombre, packageId, enabled, speechMuted, sayName, y para
+  apps también callsMuted/titleOnly) como un archivo JSON al chat de Telegram, exactamente el
+  mismo mecanismo ya probado para el CSV y los medios (`TelegramClient.sendDocument`,
+  Telegram Desktop lo descarga solo). **Solo se manda si la configuración cambió** desde el
+  último envío (se compara un hash guardado en `SharedPreferences` propio,
+  `config_report_v1`) — evita mandar el mismo archivo sin cambios en cada ciclo del worker.
+  Se llama desde `TelegramSyncWorker.doWork()`, junto a `sendPendingCsv`/`sendPendingMedia`.
+- ✅ **`csv_importer.py` extendido** — `ciclo_config()` (nueva, se llama al final de `ciclo()`)
+  busca archivos `*_config_*.json` en la carpeta de descargas (patrón distinto al de los CSV,
+  no se cruzan). `importar_config()` valida que el JSON tenga `sucursal`/`billeteras`/`apps`
+  (mismo criterio que el `EXPECTED_HEADER` de los CSV, para no tragarse por error algo de
+  otro chat) y hace un upsert en la tabla nueva `config_sucursales` — **solo guarda la
+  versión MÁS RECIENTE por sucursal**, no un historial (no tiene sentido acumular
+  configuraciones viejas). El archivo se marca en `archivos_importados` igual que un CSV,
+  para no reprocesarlo.
+- ✅ **`/listado` ahora muestra, por sucursal, un resumen de su configuración** —
+  `_resumen_config()` (nueva) busca billeteras/apps **APAGADAS** (❌) o **SIN VOZ** (🔇) — a
+  propósito NO lista las reglas que están todas normales (con 10+ reglas por sucursal, un
+  listado completo sería ilegible en un mensaje de Telegram) — si todo está bien, dice
+  explícitamente "✅ N regla(s), todas activas y con voz". Si una sucursal nunca mandó un
+  reporte de configuración (teléfono viejo sin esta versión, o recién instalado y aún sin
+  ciclo del worker), dice "(sin reporte de configuración todavía)" en vez de fallar.
+- ⚠️ **Nota de diseño:** el reporte se manda solo cuando CAMBIA — si una sucursal configuró
+  mal algo (ej. apagó una billetera) y NUNCA vuelve a tocar Configuración, ese reporte
+  desactualizado sigue siendo el que ve `/listado` para siempre (no hay una re-confirmación
+  periódica de "todavía es así"). Esto es aceptable para el caso de uso (detectar
+  configuraciones nuevas mal hechas), pero vale la pena recordar que `/listado` muestra "la
+  última vez que algo cambió", no "el estado verificado ahora mismo".
+- **Sin probar en el teléfono todavía** — recién se instaló v2.49 por ADB. Falta: esperar (o
+  forzar con "Sincronizar ahora") un ciclo del worker para que el teléfono mande su primer
+  reporte, y confirmar con `/listado` que aparece el resumen.
+- **Regla nueva, pedida explícitamente por el usuario en esta misma tanda:** ya NO se borran
+  las builds Interna viejas de `Releases/` al sincronizar una versión nueva — solo se
+  AGREGAN. La limpieza de 46 APKs viejos de la Tanda anterior fue una autorización puntual,
+  no una política permanente; el usuario lo corrigió apenas lo notó. Ver memoria
+  `feedback-keep-old-releases`.
+
+### Tanda v2.48, etapa 1 (2026-09-30) — Billeteras/Aplicaciones centralizadas, con destino por sucursal + `/listado`
+
+Pedido explícito del usuario, surgido de la Tanda v2.45-v2.46 (Publicidad bloqueada): quería
+el mismo tipo de archivo maestro pero para Billeteras/Aplicaciones — poder agregar una app
+nueva (ejemplo real que dio: la de su proveedor de bebidas, para que todos sus empleados la
+instalen y quede configurada sola) o una billetera nueva a todas sus sucursales de una vez, o
+ajustar On/Off/voz/nombre/llamadas/modo sin entrar a cada teléfono uno por uno. Al plantearlo,
+el usuario mismo notó el problema clave: **no todos sus empleados/sucursales deben recibir el
+mismo cambio** (ej. un Jefe puede necesitar billeteras que un cajero no) — de ahí que esta
+tanda, a diferencia de Publicidad bloqueada, tenga targeting por sucursal desde el diseño.
+
+- ✅ **Diseño deliberadamente distinto al de Publicidad bloqueada: APLICAR cambios puntuales,
+  NUNCA reemplazar la lista completa.** Publicidad bloqueada reemplaza toda la lista local en
+  cada sync (tiene sentido ahí, se espera que sea igual en todas partes). Para
+  Billeteras/Aplicaciones eso sería peligroso: si una sucursal agregó una app por su cuenta y
+  el archivo maestro no la menciona, un "reemplazo total" la borraría en el siguiente ciclo —
+  un riesgo real de romper la detección de pagos de esa sucursal sin que nadie lo note hasta
+  que ya sea tarde. En su lugar, cada línea del archivo se APLICA como una entrada
+  independiente (agregar si no existe / modificar si existe / quitar) — una regla que el
+  archivo no menciona queda intacta siempre.
+  - `WalletConfig.upsert()`/`AppConfig.upsert()` (nuevas) — agregan o actualizan UNA regla
+    por nombre, sin tocar las demás.
+  - `WalletAppSync.kt` (nuevo, mismo patrón de fetch que `AdFilterSync`) — descarga
+    `billeteras_aplicaciones.json` de Firebase Hosting, y por cada entrada llama a
+    `upsert()`/`remove()` según corresponda.
+  - **Campos no especificados en una entrada se CONSERVAN, no se resetean a un default** —
+    si el admin sincroniza una entrada para cambiar SOLO `enabled`, y esa entrada no trae
+    `sayName`, el valor de `sayName` que ya tenía esa sucursal (si la regla ya existía) se
+    queda igual. Se logra con `JSONObject.has(campo)` — si el campo está AUSENTE del JSON
+    (no solo en `false`), se usa el valor existente (o el default solo si la regla es nueva).
+- ✅ **Targeting por sucursal (`destino`)** — cada entrada trae `"TODOS"` o una lista de
+  nombres de sucursal; cada teléfono se filtra a sí mismo comparando contra su propio
+  `DisplayPreferences.deviceLabel()`, el MISMO criterio ya usado y confiado en
+  `TelegramCommandHandler.targetMatches()` para `/notificar TODOS|<sucursal>` — no se inventó
+  un mecanismo nuevo, se reusó uno que el usuario ya conocía y confiaba.
+- ✅ **`/listado` (nuevo, PC-only, mismo motivo que `/help` desde v2.47)** — devuelve todos
+  los nombres de sucursal conocidos (de `miSecretaria.db`, poblada por los CSV que cada
+  teléfono ya manda) + hace cuánto se vio cada una activa (🟢 si mandó algo en las últimas 48h,
+  ⚪ si no). Ningún teléfono puede responder esto por su cuenta — cada uno solo conoce su
+  propio nombre. Pensado para que el admin sepa qué nombres EXACTOS usar en la columna
+  `destino` de `miSecretaria_BilleterasAplicacion.txt`, sin adivinar ni tener que recordarlos.
+  Agregado al teclado persistente de `/help` también.
+- ✅ **`miSecretaria_BilleterasAplicacion.txt` (nuevo, formato de 10 campos)**:
+  `tipo|nombre|destino|accion|packageId|enabled|hablar|con_nombre|llamadas|modo` — documentado
+  en detalle en los comentarios del propio archivo, con dos ejemplos reales: Yape (billetera
+  existente, `destino=TODOS`) y "BEES Bolivia" (app nueva del proveedor de bebidas que
+  mencionó el usuario, con su `packageId` real de Google Play). `accion=quitar` solo necesita
+  `tipo|nombre|destino`, el resto de campos no hace falta.
+- ✅ **`csv_importer.py` extendido**: `leer_billeteras_apps()` parsea el archivo a una lista
+  de entradas JSON; `sincronizar_billeteras_apps()` (mismo patrón mtime-check que
+  `sincronizar_publicidad`) publica `public/billeteras_aplicaciones.json` en Firebase
+  Hosting. `publicar_publicidad_en_firebase()` se renombró a `publicar_en_firebase()` (ya no
+  es específica de publicidad, la comparten ambos archivos). Nuevo comando `/listado`
+  (`texto_listado()`, consulta `SELECT sucursal, MAX(fecha)... GROUP BY sucursal`).
+- 🐛→✅ **Bug propio encontrado y corregido antes de probarlo:** un `Edit` mal aplicado dejó
+  dos bloques `else: log.warning(...)` consecutivos (inválido en Python) al renombrar
+  `publicar_publicidad_en_firebase`. Se detectó revisando el archivo completo antes de
+  compilar/probar, no en producción — corregido de inmediato.
+- ⚠️ **Etapa 1 de 2, a propósito:** esto NO incluye que `/listado` muestre qué
+  billeteras/apps tiene configuradas cada sucursal (pedido explícito del usuario en la misma
+  conversación, como forma de detectar configuraciones erróneas de empleados nuevos antes de
+  perder facturas/reportes) — eso requiere que cada teléfono reporte su configuración actual
+  a la PC (algo que hoy no existe, ningún mecanismo lo hace) y se deja como una ETAPA 2
+  separada, sin diseñar todavía en detalle.
+- **Sin probar en el teléfono todavía** — recién se instaló v2.48 por ADB. Falta: escribir una
+  entrada real en el archivo, confirmar que se publica en Firebase, confirmar que el
+  teléfono la aplica (o la ignora si su `destino` no coincide), y probar `/listado` desde
+  Telegram.
+
+### Tanda v2.47 (2026-09-30) — `/help` se muda entero a la PC (bug de respuestas repetidas) + teclado persistente de comandos
+
+🐛→✅ **Reportado por el usuario en vivo:** "cuando presiono /help, el bot de Telegram me
+responde varias veces". Causa REAL, ya documentada como limitación conocida desde v2.13 pero
+nunca antes había molestado lo suficiente para arreglarla: `/help` (y `/start`) se procesaban
+en `TelegramCommandHandler.kt`, corriendo en CADA teléfono que comparte el bot — como ninguno
+confirma el offset ante Telegram (a propósito, para que `/notificar TODOS` le llegue a
+todos), CADA teléfono ve el mismo `/help` y responde POR SU CUENTA. Con 1 teléfono no se
+notaba; con el usuario ahora probando con dos sucursales + su propio teléfono, ya son 3
+respuestas al mismo `/help`. **No era una condición de carrera ni un fallo del dedupe** (se
+verificó que `TelegramConfig.markUpdateIfNew` SÍ es `@Synchronized` y atómico, evita que el
+MISMO teléfono responda dos veces) — el problema es, por diseño, que son VARIOS teléfonos
+respondiendo, no una sola vez.
+
+- ✅ **Arreglo: `/help`/`/start` se mudan POR COMPLETO a `csv_importer.py` (PC)** — se quitan
+  de `TelegramCommandHandler.kt` (y las constantes `CMD_HELP`/`CMD_START`/`BotTexts.help()`
+  se eliminan, ya sin uso). Como `csv_importer.py` es un proceso ÚNICO (una sola instancia en
+  la PC del admin), es el único que responde ahora — sin importar cuántos teléfonos
+  compartan el bot, la respuesta es siempre una sola. El resto de comandos (`/notificar`,
+  `/notificarpantalla`, `/renombrar`) **se quedan exactamente igual en los teléfonos** —
+  pedido explícito del usuario ("que también se mantengan los /Comandos normales") y además
+  NUNCA tuvieron este problema: `/notificar`/`/notificarpantalla` no responden nada al chat,
+  y `/renombrar` solo responde el ÚNICO dispositivo cuyo nombre/código coincide (`return`
+  temprano en cualquier otro).
+  ⚠️ **Trade-off aceptado:** si el admin no tiene `csv_importer.py` corriendo en ese momento,
+  `/help` no responde nada hasta que lo abra (antes, cualquier teléfono encendido respondía
+  al toque). Dado que `/help` es sobre todo una ayuda para el propio admin (no algo que usen
+  las sucursales rutinariamente), y que el admin es quien tiene el script, se acepta este
+  trade-off a cambio de eliminar las respuestas repetidas.
+- ✅ **Teclado persistente con todos los comandos** (pedido explícito del usuario: "Botones
+  persistentes (Todos los comandos)") — `TECLADO_COMANDOS` (nuevo,
+  `ReplyKeyboardMarkup` de Telegram con `is_persistent: true`) se manda junto con la
+  respuesta de `/help`: botones `/notificar`, `/notificarpantalla`, `/renombrar`, `/panelon`,
+  `/paneloff`, `/help`. Telegram los muestra como fila de botones debajo del campo de texto,
+  **sin deshabilitar el teclado normal** — pedido explícito del usuario ("que también se
+  mantengan los /Comandos normales"), cumplido porque un bot no puede deshabilitar el
+  teclado del sistema, solo ofrecer accesos rápidos además de él.
+  - Los comandos SIN argumentos (`/help`, `/panelon`, `/paneloff`) funcionan perfecto con un
+    solo toque — se ejecutan directo.
+  - Los que SÍ necesitan texto extra (`/notificar`, `/notificarpantalla`, `/renombrar`) no
+    pueden autocompletarse solos con un `ReplyKeyboardMarkup` (Telegram manda el texto del
+    botón tal cual al tocarlo, no lo deja en el campo para seguir escribiendo) — al tocarlos
+    se manda el comando pelado, que dispara la respuesta de "formato incorrecto" con el
+    ejemplo exacto (`notifyUsageError()`/`renameUsageError()`) — sigue siendo útil como
+    recordatorio de sintaxis, aunque no complete el mensaje por sí solo. Limitación de la
+    API de Telegram, no de esta implementación.
+- **Sin confirmar todavía en vivo** — recién se instaló v2.47 por ADB y se sincronizó
+  `csv_importer.py` al checkout principal. El proceso de `csv_importer.py` que el usuario
+  tenía corriendo antes de este fix ya no está activo (lo cerró él) — falta que lo vuelva a
+  abrir (`miSecretaria_ImportarCSV.desktop`) para que cargue el código nuevo y probar `/help`
+  de nuevo, ahora esperando UNA sola respuesta con los botones.
+
+### Tanda v2.45-v2.46 (2026-09-30) — "Publicidad bloqueada" centralizada desde un archivo maestro en la PC
+
+Pedido explícito del usuario: tenía marcada manualmente la publicidad bloqueada en SU
+teléfono (Yape, WhatsApp, Maps, TikTok, Lite — 9 frases reales, capturadas de su
+`ad_filter_v1.xml` para armar la plantilla) y quería un archivo único que edite en su PC y
+que se propague solo a todos los teléfonos de sus empleados, sin marcar cada frase a mano en
+cada sucursal.
+
+- 🐛→✅ **v2.45 — primer intento, DESCARTADO por un problema de diseño real, encontrado
+  probándolo antes de darlo por bueno:** la idea inicial fue que `csv_importer.py` leyera
+  `miSecretaria_PublicidadBloqueada.txt` y mandara un comando `/publicidadsync` (con toda la
+  lista) al bot de Telegram, para que cada teléfono lo recibiera por su propio long-poll —
+  mismo mecanismo que `/notificar TODOS`. **No funciona:** confirmado en vivo que
+  `getUpdates` (lo que usan los teléfonos para "escuchar" comandos) solo devuelve mensajes
+  que llegan AL bot desde una cuenta de usuario real — nunca los que el bot mismo manda con
+  `sendMessage`. El script "mandaba" el comando con éxito (sin error), pero ningún teléfono
+  lo veía nunca, porque un bot no puede verse a sí mismo los mensajes que envía — es una
+  regla fija de la API de Telegram, no algo que se pueda ajustar. Se detectó ANTES de
+  publicar como funcionando: se probó end-to-end (la PC "mandaba" el comando, se revisó el
+  log y la config del teléfono, nunca cambiaba).
+- ✅ **v2.46 — arreglo real: Firebase Hosting, mismo mecanismo que `update.json`.**
+  `csv_importer.py` ahora escribe `public/publicidad.json` (array JSON de líneas
+  `"billetera|frase"`) y corre `firebase deploy --only hosting` cuando el archivo maestro
+  cambia (por fecha de modificación, cada 60s revisa) — el mismo `firebase` CLI y PATH que ya
+  usa `release.sh`. Nuevo `AdFilterSync.kt` (Android) descarga ese JSON y llama a
+  `AdFilterConfig.replaceAll()` (nueva, reemplaza la lista COMPLETA — si el admin quita una
+  frase vieja del archivo, también se quita en los teléfonos, no solo se agregan nuevas).
+  Se llama desde `TelegramSyncWorker.doWork()`, en cada ciclo periódico.
+  - **Confirmado en vivo:** el JSON se publicó y quedó público (`curl` directo a
+    `https://misecretaria-67c62.web.app/publicidad.json` devolvió las 9 frases reales). **NO
+    se confirmó** que un teléfono lo descargue y aplique — la prueba por UI (triple-tap al
+    logo → PIN → "Sincronizar ahora") se cortó a medio camino (ver más abajo). El código en
+    sí sigue exactamente el patrón ya probado de `UpdateManager.checkForUpdate()`, así que
+    hay alta confianza, pero **sigue pendiente confirmar el lado del teléfono**.
+  - `BotTexts.CMD_PUBLICIDAD_SYNC` y `TelegramCommandHandler.handlePublicidadSyncCommand`
+    (agregados en v2.45, parte del intento descartado) se **quitaron** en v2.46 — quedaban
+    como código muerto una vez cambiado el mecanismo de entrega.
+- ⚠️ **Olvido real de esta sesión, corregido:** los archivos de v2.45/v2.46 (Kotlin +
+  `csv_importer.py` + el archivo de plantilla `miSecretaria_PublicidadBloqueada.txt`) se
+  quedaron SOLO en el worktree un buen rato — no se copiaron al checkout principal
+  (`~/Documents/miSecretaria/`) hasta que el usuario reportó "no veo el archivo...". Ya se
+  sincronizaron todos. **Lección para la próxima sesión:** después de cada tanda, verificar
+  con `diff` que TODOS los archivos tocados (no solo los `.kt`) llegaron al checkout
+  principal — un archivo de configuración nuevo (no solo código) es tan fácil de olvidar
+  copiar como cualquier `.kt`.
+- ⚠️ **El proceso de `csv_importer.py` que el usuario ya tenía corriendo (desde las 15:36,
+  antes de este arreglo) sigue con el código VIEJO en memoria** — mismo patrón ya documentado
+  antes con `/panelon`/`/paneloff` (Python no recarga en caliente). Para que la sincronización
+  de publicidad funcione, hay que cerrar esa ventana (Ctrl+C) y volver a abrir
+  `miSecretaria_ImportarCSV.desktop` (o correr `python3 csv_importer.py` de nuevo).
+- **✅ CONFIRMADO en vivo por el usuario (2026-09-30), de punta a punta:** borró a mano una
+  entrada de "Publicidad bloqueada" dentro de la app, entró al panel de Admin, tocó
+  "Sincronizar ahora", y la app volvió a bloquear esa publicidad — confirma que
+  `AdFilterSync.syncFromRemote()` SÍ descarga el JSON de Firebase Hosting y reemplaza la
+  lista local correctamente. El ciclo completo (archivo en la PC → Firebase Hosting →
+  teléfono) queda confirmado funcionando. El usuario planea seguir probando estos días con
+  dos sucursales reales. (La prueba por ADB de Claude se había cortado a medio camino — el
+  usuario terminó confirmándolo él mismo manualmente, más simple.)
+
+### Tanda v2.44 (2026-09-30) — bug real confirmado: `getUpdates?offset=0` en el teléfono, el mismo problema que ya se había visto en `csv_importer.py`
+
+🐛→✅ **Reportado por el usuario en vivo:** "acabo de enviar /help y no responde jajajaa".
+Diagnóstico completo con el teléfono conectado por ADB + consultas de solo lectura a la API
+real de Telegram (sin confirmar nada, sin interferir):
+
+- Confirmado con `getWebhookInfo` que Telegram SÍ tenía `pending_update_count: 2` en cola
+  (un `/panelon` viejo ya procesado + el `/help` nuevo del usuario).
+- `getUpdates?offset=0` (exactamente lo que usaba la app, tanto el long-poll en tiempo real de
+  `WalletNotificationListener` como el respaldo de `TelegramSyncWorker`) devolvía, repetido
+  varias veces, **SIEMPRE un solo resultado: el `/panelon` viejo — nunca el `/help` nuevo**.
+  El teléfono nunca llegó a verlo, sin importar cuántas veces reintentara (confirmado también
+  revisando `processed_update_ids` en `shared_prefs/telegram_config_v1.xml`: el id del
+  `/panelon` estaba, el del `/help` no).
+- **Es EXACTAMENTE el mismo bug que ya se había diagnosticado y corregido el 2026-09-25 en
+  `csv_importer.py`** (Python, PC) — ver esa sección más abajo ("`/panelon` no hacía nada").
+  En ese momento se decidió NO tocar `TelegramClient.kt` (Android) porque el teléfono probado
+  entonces sí veía el lote completo con su propio `offset=0`, sin evidencia de que le pasara
+  lo mismo — quedó anotado como "si algún device reporta que /notificar/renombrar no llegan
+  de forma persistente, vale la pena aplicar el mismo cambio ahí". Ese día llegó.
+- ✅ **Arreglo:** nueva constante compartida `TELEGRAM_UPDATES_OFFSET = -100L`
+  (`TelegramClient.kt`, top-level, usada por `WalletNotificationListener` Y
+  `TelegramSyncWorker`) — offset NEGATIVO ("las últimas N de la cola") en vez de `offset=0`
+  ("todo lo no confirmado desde el principio"). Sigue sin confirmar nada ante Telegram
+  (mismo diseño multi-dispositivo de siempre), solo cambia CÓMO se pide la cola. 100 es
+  generoso (normalmente hay 0-2 pendientes) sin costo real.
+- **✅ Confirmado en vivo tras instalar v2.44:** el `update_id` del `/help` pendiente pasó a
+  aparecer en `processed_update_ids` del teléfono pocos segundos después de instalar — la
+  app ya lo vio y procesó. (No se verificó el contenido exacto de la respuesta enviada al
+  chat porque el bot no puede leerse a sí mismo vía API, pero el procesamiento en sí quedó
+  confirmado con evidencia directa del `SharedPreferences`.)
+- ⚠️ **Riesgo aceptado, igual que ya se aceptó en `csv_importer.py`:** un offset negativo
+  nunca antes se había probado combinado con `timeout` (long-polling real, 25s) en el código
+  Android — en `csv_importer.py` se usa sin `timeout` (polling corto de 10s). Si en el futuro
+  el long-poll se vuelve menos eficiente (deja de esperar los 25s completos y vuelve a
+  consultar más seguido) sería un efecto secundario de esta combinación nueva, no una
+  regresión funcional — a vigilar, no bloqueante.
+
+### Tanda v2.43 (2026-09-30) — el panel de Admin absorbe TODO Telegram + Compartir Historial/CSV/Log
+
+Pedido explícito del usuario, continuación directa de la v2.42: "en el Panel administrador,
+también debe estar: Guardar y activar, Enviar mensaje de prueba y Sincronizar ahora,
+lógicamente todo con su descripción correspondiente" + "también en Panel de Administrador
+debe estar: Compartir Historial, Compartir CSV, Compartir Log, solamente debe quedarse donde
+está: Compartir Aplicación".
+
+- ✅ **Sección de Telegram completa movida al panel de Admin** — antes v2.42 ya había movido
+  nombre de sucursal + intervalo; esta tanda mueve el resto: Token del bot, Chat ID, y los
+  tres botones "Guardar y activar"/"Enviar mensaje de prueba"/"Sincronizar ahora" (con su
+  texto descriptivo, `telegram_section_hint`, y el estado tras cada acción). **Se fusionó en
+  UN SOLO "Guardar y activar"** que persiste las CUATRO cosas juntas (nombre, token, chat id,
+  intervalo) — v2.42 había dejado dos botones "Guardar y activar" distintos en el mismo
+  popup (uno para nombre/intervalo, otro para token/chatId), redundante ahora que todo vive
+  en el mismo lugar.
+- ✅ **`SettingsScreen` (Configuración) ya NO tiene NADA de Telegram** — ni el título de
+  sección, ni los campos, ni los botones. El parámetro `adminUnlocked: Boolean` de
+  `SettingsScreen` se volvió innecesario (ya no gatilla nada ahí) y se quitó de su firma y
+  del call site en `ScoSecretariaApp`; de paso, `HomeScreen` ya no necesita el callback
+  `onAdminUnlocked` (se quitó también) — el PIN correcto ahora solo abre el panel de Admin
+  directamente, sin un estado intermedio "desbloqueado" que afecte otra pantalla.
+- ✅ **Compartir Historial/CSV/Log también al panel de Admin** — con una sección nueva
+  ("Compartir (respaldo)" + su descripción) debajo del audio "Ver una vez". **"Compartir
+  Aplicación" es la ÚNICA que se queda en Configuración, sin PIN** — pedido explícito del
+  usuario, tiene sentido porque ese botón solo comparte el APK instalador, nada sensible del
+  negocio (a diferencia del Historial/CSV/Log, que sí contienen datos reales de
+  notificaciones/pagos).
+- **Sin probar todavía en el teléfono** — recién se instaló v2.43 por ADB. Falta confirmar
+  que el panel de Admin (ahora bastante más largo) se ve bien con scroll, que el botón
+  combinado "Guardar y activar" persiste las cuatro cosas correctamente, y que los tres
+  botones de Compartir funcionan igual desde su nueva ubicación.
+- 🩺 **Aclaración pedida por el usuario, verificada por lectura de código — NO necesitó
+  cambio:** "en las builds internas el Compartir Aplicación igual debe compartir la build
+  interna, solo las subidas/actualizadas deben compartir el instalador sin nada sensible."
+  `MainActivity.shareApk()` ya comparte `applicationInfo.sourceDir` — el APK FÍSICO que está
+  instalado en ESE teléfono en ESE momento, no un archivo fijo ni una referencia al build
+  "público" — así que el comportamiento pedido YA es el que hay: si el teléfono tiene
+  instalada la build "Interna" (con `build_interna.sh`, secretos de Telegram horneados en
+  `BuildConfig`), "Compartir Aplicación" comparte esa misma build con sus secretos, tal cual
+  se pidió (para pasarla a otra sucursal ya configurada); si tiene instalada la build pública
+  (la de `release.sh`/"Buscar actualización", secretos vacíos), comparte esa, sin nada
+  sensible. Ninguna build puede "compartir la otra" porque Android solo expone el instalador
+  del paquete que está corriendo — no hay forma (ni falta) de referenciar el otro binario
+  desde dentro de la app.
+
+### Tanda v2.42 (2026-09-30) — panel de Admin como ventana emergente (ya no dentro de Configuración) + PIN con teclado numérico
+
+Pedido explícito del usuario, "un cambio de seguridad": antes, tras el PIN correcto
+(`adminUnlocked=true`), el nombre de sucursal y el intervalo de Telegram quedaban SIEMPRE
+editables dentro de Configuración (sin PIN, cualquier empleado de sucursal podía cambiarlos),
+y la sección de "Audio 'Ver una vez'" (v2.40) quedaba enterrada en medio de una pantalla larga
+de Configuración con muchas otras secciones. El usuario pidió que estas tres cosas vivan en
+una ventana emergente propia de Admin, que aparece apenas se acierta el PIN — no dentro de
+Configuración en absoluto.
+
+- ✅ **Panel de Admin nuevo (`AlertDialog`, `HomeScreen`)** — se abre automáticamente al
+  acertar el PIN (antes solo se llamaba `onAdminUnlocked()` y no pasaba nada más visible).
+  Contiene: campo "Nombre de sucursal/dispositivo", campo "Intervalo (minutos)" con su propio
+  botón "Guardar y activar" (persiste `DisplayPreferences.setDeviceLabel`/
+  `TelegramConfig.setIntervalMinutes` y reprograma `TelegramSyncWorker` si Telegram ya está
+  configurado), y la sección completa de "Audio 'Ver una vez'" (estado en vivo + botón
+  Armar/Detener) — exactamente el mismo bloque que vivía en `SettingsScreen` desde v2.40,
+  solo que relocalizado.
+- ✅ **Removidos de `SettingsScreen` (Configuración) por completo:** el campo de nombre de
+  sucursal, el campo de intervalo, y toda la sección de Audio "Ver una vez" — ya NO aparecen
+  ahí bajo ninguna condición, ni siquiera con `adminUnlocked=true`. El botón "Guardar y
+  activar" que queda en Configuración → Telegram ahora solo guarda Token/Chat ID (sigue
+  enmascarados si `adminUnlocked=false`, igual que antes) y reprograma el worker con el
+  intervalo YA guardado (el que se haya puesto desde el panel de Admin). El botón "Enviar
+  mensaje de prueba" sigue funcionando igual, leyendo el nombre de sucursal actual directo de
+  `DisplayPreferences` en vez de una variable local (ya no existe esa variable en
+  `SettingsScreen`).
+- ✅ **Teclado numérico para el PIN** — el campo de PIN filtraba los caracteres no numéricos
+  en código (`it.filter(Char::isDigit)`), pero el teclado que aparecía era el QWERTY completo
+  de todas formas (nunca se le pidió a Android el teclado numérico). Con
+  `keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)` ahora
+  aparece solo el teclado numérico, igual que cualquier PIN nativo de Android — pedido
+  explícito del usuario ("que solo aparezca números").
+- ⚠️ **"Predeterminadamente viene desactivada" (Audio Ver una vez) — ya era así, no requirió
+  cambio nuevo:** el servicio de captura (`ViewOnceAudioCaptureService`) nunca se auto-arma —
+  Android tampoco permite dejar el consentimiento de `MediaProjection` concedido para siempre
+  (hay que rearmar a mano tras cerrar la app o reiniciar el teléfono, ver Tanda v2.40) — así
+  que mover el botón de Armar/Detener al panel de Admin no cambió ese comportamiento, solo
+  dónde se ve.
+- **Sin probar todavía en el teléfono** — recién se instaló v2.42 por ADB. Falta confirmar
+  que el panel de Admin se abre bien tras el PIN, que Guardar funciona ahí, que Armar/Detener
+  audio sigue funcionando desde su nueva ubicación, y que el teclado del PIN ya es numérico.
+
 ### Tanda v2.41 (2026-09-30) — control fino de voz por billetera/app: mute, nombre, llamadas, modo distancia + fix del bug de "repite la notificación anterior"
 
 Pedido explícito del usuario, varios pedidos juntos en un solo mensaje, tras confirmar que
@@ -1498,17 +1850,28 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2041`, `versionName="2.41"` (ver `app/build.gradle.kts`).
+- **Versión actual:** `versionCode=2049`, `versionName="2.49"` (ver `app/build.gradle.kts`).
   Agrega la pantalla "Adjuntos" (v2.39), la captura de audio de "Ver una vez" (v2.40 —
   **confirmada en vivo, ver "Tanda v2.40"**: grabó 21s de audio real, aunque sin notificación
-  para correlacionar en esa prueba puntual) y control fino de voz por billetera/app + fix del
-  bug de repetición (v2.41, ver esa Tanda más abajo — **SIN probar en vivo todavía**).
+  para correlacionar en esa prueba puntual), control fino de voz por billetera/app + fix del
+  bug de repetición (v2.41), el panel de Admin como ventana emergente + PIN numérico (v2.42),
+  ese mismo panel absorbiendo TODO Telegram + Compartir Historial/CSV/Log (v2.43), el fix
+  del bug real de `getUpdates?offset=0` que dejaba comandos de Telegram sin responder (v2.44
+  — **CONFIRMADO en vivo**), "Publicidad bloqueada" centralizada desde un archivo maestro vía
+  Firebase Hosting (v2.45-v2.46 — **CONFIRMADO en vivo de punta a punta**: el usuario borró
+  una entrada a mano en la app, tocó "Sincronizar ahora" en el panel de Admin, y la app volvió
+  a bloquearla — el ciclo completo PC→Firebase→teléfono funciona), `/help` movido entero a
+  la PC + teclado persistente de comandos, arreglando las respuestas repetidas (v2.47), y
+  Billeteras/Aplicaciones centralizadas con targeting por sucursal + `/listado` — etapa 1
+  (v2.48) y etapa 2, que agrega el resumen de configuración por sucursal a `/listado` (v2.49)
+  — ver esas Tandas, **ninguna de las dos confirmada todavía** — v2.41/2.42/2.43/2.47 tampoco
+  se probaron.
   **Regla de instalación reiterada por el usuario (2026-09-30): por ahora SOLO por ADB al
   teléfono del usuario — sus sucursales están trabajando en este momento, NO correr
-  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.41 siguen sin publicar a propósito).
+  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.49 siguen sin publicar a propósito).
   Compila limpio, build Interna generada, **YA INSTALADA por ADB en el teléfono del usuario**.
   **v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, ver más abajo — el tag
-  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.41 aún no**, falta
+  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.49 aún no**, falta
   correr `release.sh` de nuevo cuando el usuario lo pida.
   **✅ DETECCIÓN DE MEDIOS DE WHATSAPP: MADURA Y CONFIRMADA EN VIVO (prueba exhaustiva
   2026-09-30, ver esa sección más abajo)** — 18 de 21 tipos probados sistemáticamente
@@ -2035,7 +2398,11 @@ cada exclusión.
 - `TelegramClient.kt` — cliente mínimo (sin librerías) de la API HTTP de Telegram Bot:
   `sendMessage`, `sendDocument` (multipart, para el CSV) y `getUpdates` (con `timeoutSeconds`
   opcional desde v2.16 para long-polling real — conexión abierta hasta que llega un mensaje o
-  se agota el tiempo). Todo con `HttpURLConnection` + `org.json`.
+  se agota el tiempo). Todo con `HttpURLConnection` + `org.json`. **v2.44:** nueva constante
+  top-level `TELEGRAM_UPDATES_OFFSET = -100L`, usada por `WalletNotificationListener` y
+  `TelegramSyncWorker` en vez de `offset=0` — confirmado en vivo que `offset=0` puede quedarse
+  devolviendo SIEMPRE el update más viejo de la cola cuando hay 2+ pendientes (ver "Tanda
+  v2.44"), mismo bug que ya se había visto y corregido en `csv_importer.py` (Python/PC).
 - `BotTexts.kt` (nuevo v2.19) — TODO el texto del bot de Telegram y los nombres de sus
   comandos (`CMD_NOTIFY`, `CMD_NOTIFY_SCREEN`, `CMD_RENAME`, `CMD_HELP`, `CMD_START`) en un
   solo lugar. `TelegramCommandHandler.kt` construye sus `Regex` a partir de estas constantes
@@ -2119,7 +2486,17 @@ cada exclusión.
   con una frase (editable, pre-rellenada con los primeros 60 caracteres del mensaje).
   Guarda `(billetera, frase)` y cualquier mensaje futuro de esa misma billetera que
   contenga esa frase queda silenciado igual que la publicidad automática. Se administra
-  (ver/quitar) en Configuración → "Publicidad bloqueada".
+  (ver/quitar) en Configuración → "Publicidad bloqueada". **v2.46:** `replaceAll(context,
+  phrases)` (nuevo) — reemplaza la lista COMPLETA de una vez (a diferencia de `add()`, que
+  solo suma), usado por `AdFilterSync.syncFromRemote()` para que la lista local quede
+  IDÉNTICA a la del archivo maestro del admin (ver esa clase y la Tanda v2.46).
+- `AdFilterSync.kt` (nuevo, v2.46) — descarga `https://misecretaria-67c62.web.app/
+  publicidad.json` (Firebase Hosting, mismo dominio/patrón que `UpdateManager` usa para
+  `update.json`) y reemplaza la "Publicidad bloqueada" local con lo que haya ahí. Llamado
+  desde `TelegramSyncWorker.doWork()`, a propósito ANTES del `if (token.isBlank()...)
+  return` — corre en cada ciclo del worker periódico sin depender de que Telegram esté
+  configurado. Si la descarga falla (sin internet, archivo aún no publicado), no toca nada
+  local — se reintenta solo en el próximo ciclo.
 - `InstalledAppsProvider.kt` — lista las apps instaladas con ícono de lanzador (usa el
   `<queries>` del manifest para verlas todas en Android 11+, sin permisos especiales).
   Alimenta la pantalla "Elegir desde apps instaladas" (botón en Billeteras y en Apps
@@ -2162,6 +2539,14 @@ cada exclusión.
   cambiarlo). Triple-tap al logo en Home → diálogo de PIN → si es correcto, revela/permite
   editar el token y Chat ID de Telegram en Configuración durante esa sesión (no se persiste el
   desbloqueo). Pensado para que el personal de una sucursal no pueda ver ni tocar el token.
+  **v2.42:** el campo de PIN (en `MainActivity.kt`, no en este archivo) ahora usa
+  `KeyboardType.NumberPassword` — antes mostraba el teclado QWERTY completo aunque filtrara
+  los caracteres no numéricos en código. Además, el PIN correcto ya NO solo activa
+  `adminUnlocked` — también abre directo un panel de Admin (`AlertDialog` nuevo en
+  `HomeScreen`) con nombre de sucursal, intervalo de Telegram, y Audio "Ver una vez" — esos
+  tres YA NO aparecen en Configuración bajo ninguna condición (antes el nombre/intervalo eran
+  editables sin PIN, y el audio vivía en una sección larga dentro de Configuración). Pedido
+  explícito del usuario, "un cambio de seguridad".
 - `ScoSecretariaLogger.kt` — log de depuración, **solo activo en builds DEBUG**
   (`BuildConfig.DEBUG`), con rotación automática (mantiene las últimas ~800 líneas).
 - `AppInfo.kt` — nombre/versión centralizados vía `BuildConfig`.
@@ -2311,6 +2696,70 @@ quitaron del repo (recuperables del historial de git si hiciera falta):
   del historial de git ya existente (~150 MB siguen en commits viejos) — eso requeriría
   reescribir el historial (`git filter-repo`/BFG + force-push), una operación destructiva que
   no se hizo; solo se pidió si el usuario lo pide explícitamente en el futuro.
+
+## Limpieza de disco (2026-09-30) — solo archivos locales, nada de git
+
+Pedido explícito del usuario: "verifica la Carpeta/SubCarpeta/Archivos que sean innecesarios,
+elimínalos". Todo lo tocado estaba en `.gitignore` (regenerable, nunca se subió a git) — esto
+es limpieza de disco, no del historial del repo.
+
+- ✅ **`Releases/` pasó de 597 MB a 13 MB** — tenía acumulados 46 APKs viejos (desde v2.12
+  hasta v2.41, mezcla de `-debug.apk`/`-debug_Interna.apk`) de sesiones/tandas anteriores, sin
+  ningún uso ya que solo la ÚLTIMA build "Interna" importa para repartir a sucursales. Se
+  copió la build Interna más reciente (`miSecretariaV2.47-debug_Interna.apk`, generada en el
+  worktree de esta sesión) a `Releases/` en la carpeta real del proyecto, y se borraron todas
+  las demás. **Esta es la que el usuario va a repartir a sus dos sucursales de prueba cuando
+  haga el cierre de caja** (ver Tanda v2.47).
+- ✅ **`build/` en la raíz del proyecto (4.2 MB) eliminada** — solo reportes de
+  configuration-cache de Gradle, se regenera solo en la próxima compilación, no tenía nada
+  de valor guardado ahí.
+- 🩺 **Revisado y dejado igual, NO es basura:** `Archivo/` (backups reales de
+  `backup_proyecto.sh`, no duplicados innecesarios — son snapshots periódicos, lo opuesto de
+  "innecesario"), `.firebase/hosting.*.cache` (un solo archivo de 364 bytes, caché legítima de
+  la CLI), `.gradle`/`.kotlin`/`app/build` (cachés de compilación activas — borrarlas solo
+  haría más lenta la próxima compilación, sin ganancia real), `public/*.json` (los dos son
+  archivos en vivo: `update.json` y `publicidad.json`, ambos activamente servidos).
+- **Nota:** esta limpieza fue solo en la carpeta real del proyecto
+  (`~/Documents/miSecretaria/`). El worktree interno de Claude Code para esta sesión también
+  acumuló APKs viejos (incluso más viejos, de `ScoSecretaria` v0.1-v2.0) — no se tocó, porque
+  no es una carpeta que el usuario navegue directamente y el propio sistema de worktrees la
+  limpia sola cuando ya no se necesita.
+
+## Publicidad de WhatsApp/Telegram — qué es seguro borrar del chat del bot (pregunta del usuario, 2026-09-30)
+
+El usuario preguntó si puede vaciar el historial del chat de `@miSecretariaPerfecta_bot` en
+Telegram (los CSV y archivos multimedia que llegan ahí) sin perder nada importante, dado que
+los CSV ya se importan a `miSecretaria.db` vía `csv_importer.py`. Respuesta, con la distinción
+clave entre los dos tipos de archivo que llegan a ese chat:
+
+- ✅ **CSV: seguro borrarlos del chat, una vez importados.** Su ÚNICO propósito es ser el
+  transporte del teléfono a `miSecretaria.db` (`csv_importer.py` los lee, inserta cada fila
+  en la tabla `notificaciones`, y registra el nombre del archivo en `archivos_importados`
+  para no reimportarlo si Telegram lo vuelve a tocar). Una vez que un CSV aparece en
+  `archivos_importados`, ya cumplió su función — el dato real vive en la base de datos, no en
+  el archivo. Vaciar el chat no borra nada de `miSecretaria.db`.
+- ⚠️ **Multimedia (fotos/videos/audios/documentos): NO es lo mismo, hay que pensarlo dos
+  veces.** A diferencia de los CSV, estos archivos NO se importan a ninguna base de datos —
+  `TelegramSyncWorker.sendPendingMedia()` los reenvía al chat tal cual, como un respaldo
+  adicional fuera del teléfono. Hoy existen en DOS lugares: el teléfono
+  (`filesDir/media/`, la copia que hizo la app) y el chat de Telegram. **Si se vacía el chat,
+  la ÚNICA copia que queda es la del teléfono** — y esa es precisamente la que se puede
+  perder si el empleado borra la app, resetea el teléfono, o se pierde/daña el equipo (el
+  mismo escenario de "empleado que borra una factura por error o a propósito" que motivó
+  todo el Paso 2 desde el principio, ver Tanda v2.26/v2.30). Vaciar el chat de Telegram deja
+  sin respaldo fuera del teléfono justo a los archivos que más importan proteger.
+  **Recomendación:** si se quiere liberar espacio/orden en el chat, hacerlo solo con los CSV
+  (o con multimedia de la que ya se tenga una copia aparte, ej. descargada a la PC a mano) —
+  no vaciar todo el historial de una.
+
+✅ **Decisión final del usuario (2026-09-30): NO borrar nada del chat, ni CSV ni multimedia.**
+"Por seguridad... que se queden en Telegram, así no llenamos nuestro servidor de muchos
+archivos y solo que este lo necesario" — el chat de Telegram queda como el archivo
+permanente/histórico completo; la idea es que el almacenamiento LOCAL (`miSecretaria.db`, el
+`filesDir/media/` de cada teléfono) se mantenga liviano con solo lo necesario, confiando en
+Telegram como respaldo de largo plazo. No se pidió ningún mecanismo de purga local todavía —
+si en el futuro se pide (ej. limitar cuánto crece `miSecretaria.db` o la carpeta de medios de
+un teléfono), esta es la motivación que lo explicaría.
 
 ## Pendiente / limitaciones conocidas
 

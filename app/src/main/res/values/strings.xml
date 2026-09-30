@@ -80,6 +80,14 @@
     <string name="pin_label">PIN</string>
     <string name="pin_error">PIN incorrecto</string>
 
+    <!-- Panel de Admin (v2.42) — se abre solo, apenas el PIN es correcto; ya no vive dentro
+         de Configuración, para que quede oculto a cualquiera que no sepa el PIN. -->
+    <string name="admin_dialog_title">Panel de administrador</string>
+    <!-- v2.43: Compartir Historial/CSV/Log se mueven aquí también (Compartir Aplicación se
+         queda en Configuración, sin PIN, porque no tiene nada sensible). -->
+    <string name="admin_share_section_title">Compartir (respaldo)</string>
+    <string name="admin_share_section_hint">Manda el Historial, el CSV o el Log como archivo adjunto, para revisar o respaldar fuera del teléfono.</string>
+
     <!-- Pantalla "Leer" -->
     <string name="read_placeholder">Pega o escribe el texto a leer</string>
     <string name="action_read_aloud">Leer en voz alta</string>

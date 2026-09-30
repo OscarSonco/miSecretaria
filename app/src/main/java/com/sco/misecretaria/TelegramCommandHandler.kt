@@ -4,32 +4,29 @@ import android.content.Context
 import java.util.UUID
 
 /**
- * Lógica de comandos del bot (/help, /notificar, /notificarpantalla, /renombrar), compartida
- * entre el polling en tiempo real de `WalletNotificationListener` y el respaldo periódico de
+ * Lógica de comandos del bot (/notificar, /notificarpantalla, /renombrar), compartida entre
+ * el polling en tiempo real de `WalletNotificationListener` y el respaldo periódico de
  * `TelegramSyncWorker` (mismo dedupe atómico vía `TelegramConfig.markUpdateIfNew`, así que no
  * hay riesgo de duplicar aunque los dos corran casi al mismo tiempo).
  *
  * Los nombres de comando y el texto de las respuestas viven en `BotTexts.kt` — cambiar un
  * comando o una frase se hace ahí, no aquí.
+ *
+ * v2.47: `/help`/`/start` YA NO se procesan aquí — se movieron por completo a
+ * `csv_importer.py` (PC). Motivo: cada teléfono que comparte el bot respondía por su cuenta
+ * ("no hay forma de elegir un solo respondedor sin un servidor propio"), así que con varias
+ * sucursales un solo `/help` generaba una respuesta repetida por cada teléfono — confirmado
+ * en vivo por el usuario. La PC es un proceso único, así que es la única que responde ahora
+ * (con teclado persistente de botones, ver ese script). El resto de comandos de aquí abajo
+ * NUNCA tuvo ese problema (no responden al chat, o solo responde el único dispositivo cuyo
+ * nombre/código coincide) — siguen exactamente igual, procesados por cada teléfono.
  */
 object TelegramCommandHandler {
 
     fun handle(context: Context, text: String, deviceLabel: String) {
-        handleHelpCommand(context, text, deviceLabel)
         handleNotifyCommand(context, text, deviceLabel)
         handleNotifyPantallaCommand(context, text, deviceLabel)
         handleRenameCommand(context, text, deviceLabel)
-    }
-
-    /**
-     * /help o /start — lista los comandos disponibles. Responde CADA dispositivo que comparte
-     * el bot (no hay forma de elegir "un solo respondedor" sin un servidor propio) — con pocas
-     * sucursales es aceptable; si llega a haber muchas, revisar si conviene limitarlo.
-     */
-    private fun handleHelpCommand(context: Context, text: String, deviceLabel: String) {
-        val normalized = text.trim().lowercase()
-        if (normalized != "/${BotTexts.CMD_HELP}" && normalized != "/${BotTexts.CMD_START}") return
-        replyUsage(context, BotTexts.help(deviceLabel))
     }
 
     /**

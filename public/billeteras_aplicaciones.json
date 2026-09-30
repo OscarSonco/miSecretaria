@@ -1,0 +1,26 @@
+[
+  {
+    "tipo": "billetera",
+    "nombre": "Yape",
+    "destino": [
+      "TODOS"
+    ],
+    "packageId": "com.bcp.bo.wallet",
+    "enabled": true,
+    "speechMuted": false,
+    "sayName": true
+  },
+  {
+    "tipo": "app",
+    "nombre": "BEES Bolivia",
+    "destino": [
+      "TODOS"
+    ],
+    "packageId": "com.abinbev.android.tapwiser.beesBolivia",
+    "enabled": true,
+    "speechMuted": false,
+    "sayName": true,
+    "callsMuted": false,
+    "titleOnly": false
+  }
+]

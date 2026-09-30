@@ -101,9 +101,18 @@ class WalletNotificationListener : NotificationListenerService() {
             // interrumpir la llamada bloqueante en sí, pero sí evita que ESTE loop se quede
             // esperando para siempre: si se agota, se descarta el resultado y se reintenta en
             // la próxima vuelta — autorecuperable, sin depender de que el usuario reinicie la app.
+            // v2.44: `offset=0` confirmado en vivo como NO confiable (mismo bug que ya se
+            // había visto y corregido en `csv_importer.py`, Python/PC, el 2026-09-25 — acá no
+            // se había tocado porque el teléfono probado entonces sí veía el lote completo).
+            // Diagnóstico de esta vez: con `/panelon` y `/help` pendientes en la cola real de
+            // Telegram (confirmado con `getWebhookInfo`, `pending_update_count: 2`),
+            // `getUpdates?offset=0` devolvía SIEMPRE un solo resultado — el más viejo
+            // (`/panelon`) — nunca el más nuevo (`/help`), sin importar cuántas veces se
+            // reintentara: el bot nunca llegaba a verlo. `offset=TELEGRAM_UPDATES_OFFSET`
+            // (negativo, "las últimas N de la cola") sí trae el lote completo de forma estable.
             val updates = runCatching {
                 withTimeout((TELEGRAM_LONGPOLL_TIMEOUT_SEC + 15) * 1000L) {
-                    TelegramClient.getUpdates(token, offset = 0, timeoutSeconds = TELEGRAM_LONGPOLL_TIMEOUT_SEC)
+                    TelegramClient.getUpdates(token, offset = TELEGRAM_UPDATES_OFFSET, timeoutSeconds = TELEGRAM_LONGPOLL_TIMEOUT_SEC)
                 }
             }.getOrDefault(emptyList())
             for (update in updates) {
