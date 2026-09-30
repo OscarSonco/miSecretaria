@@ -89,6 +89,235 @@ el usuario:
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
 
+### Tanda v2.41 (2026-09-30) — control fino de voz por billetera/app: mute, nombre, llamadas, modo distancia + fix del bug de "repite la notificación anterior"
+
+Pedido explícito del usuario, varios pedidos juntos en un solo mensaje, tras confirmar que
+"actualmente todo funciona bien, incluyendo lo del audio temporal":
+
+- 🐛→✅ **Bug real: "a veces llega otra notificación y vuelve a leer la anterior."**
+  Diagnóstico por lectura de código (no se pudo reproducir en vivo, pero coincide EXACTO con
+  algo ya documentado): la Tanda v2.31 ya había visto "Sonco Perú: 🎥 Envió un video. (0:04)"
+  repetirse 6 veces en ~2 minutos con la duración cambiando cada vez — el guard de reposteo
+  de v2.35 (`REPOST_WINDOW_MS`) comparaba el texto EXACTO letra por letra, así que
+  "(0:04)" vs "(0:05)" contaban como mensajes DISTINTOS (no se filtraban), y cada uno volvía
+  a pasar por el dedupe y a leerse en voz alta como si fuera nuevo — justo el síntoma que
+  describió el usuario.
+  ✅ **Arreglo:** `REPOST_WINDOW_MS` subió de 5s a 60s, y pasó a ser una ventana DESLIZANTE
+  (cada repost visto renueva el contador, no solo se mide desde el primero — antes una racha
+  de más de 5s desde el primero ya no se filtraba). Nueva `normalizeForRepost()`
+  (`WalletNotificationListener.kt`) quita un contador/duración final entre paréntesis con
+  dígitos (ej. "(0:04)", "(45%)") ANTES de comparar — así "Envió un video. (0:04)" y
+  "Envió un video. (0:05)" se reconocen como el MISMO evento reposteado. Solo afecta la
+  comparación interna; el texto guardado en el Historial sigue siendo el original completo.
+  **Trade-off aceptado:** si dos mensajes GENUINAMENTE distintos de la misma conversación
+  tienen el mismo texto (normalizado) dentro de 60s (ej. alguien escribe "ok" dos veces), el
+  segundo se silencia igual que un reposteo — mismo riesgo que ya existía con la ventana de
+  5s, solo que ahora más ancho. **Sin confirmar en vivo todavía** — no se pudo reproducir el
+  bug a pedido para probarlo; a seguir de cerca si vuelve a pasar.
+- ✅ **Mute de voz por billetera/app** (`WalletRule.speechMuted`/`AppRule.speechMuted`,
+  nuevos) — botón 🔊/🔇 junto a cada fila en Configuración → Billeteras/Aplicaciones. Al
+  tocarlo, esa billetera/app deja de LEERSE en voz alta, pero sigue registrándose en el
+  Historial, con su notificación del sistema y sus adjuntos exactamente igual que antes — el
+  pedido explícito del usuario fue "que continúen registrándose las notificaciones/adjunto de
+  manera normal", solo se salta el paso de `SpeechEngine.speak()`.
+- ✅ **"Decir/No decir el nombre" por billetera/app** (`WalletRule.sayName`/`AppRule.sayName`,
+  default `true`) — botón 🏷️ que alterna si la lectura en voz alta antepone el nombre de la
+  billetera/app ("ZAS, Recibiste..." vs. "Recibiste..."). `SpeechEngine.speak()` ganó un
+  parámetro `sayName`, que se pasa a `NotificationSpeech.general()`/
+  `AmountSpeech.buildSpeechText()` (ambas ganaron el mismo parámetro, default `true` para no
+  cambiar el comportamiento de nadie que no toque el botón nuevo).
+- ✅ **Silenciar llamadas de WhatsApp** (`AppRule.callsMuted`, nuevo) — botón 📞 en la fila de
+  cada app. Usa `Notification.category == Notification.CATEGORY_CALL` (la señal NATIVA de
+  Android para notificaciones de llamada) en vez de buscar palabras como "llamada entrante"
+  en el texto — así no depende del idioma del teléfono ni de que WhatsApp use exactamente esa
+  frase. Con `callsMuted=true`, las llamadas de esa app dejan de anunciarse en voz alta, pero
+  los MENSAJES normales de la misma app se siguen leyendo igual (el toggle es específico a
+  `CATEGORY_CALL`, no muta toda la app).
+- ✅ **Modo "solo distancia" para apps de navegación** (`AppRule.titleOnly`, nuevo) — pedido
+  explícito con Google Maps como ejemplo real (log del usuario:
+  `"Maps GENERAL 60 m: Matheus Pub / edificio Atahualpa..."` repetido con la distancia
+  bajando en cada paso). Botón 📍 en la fila. Con `titleOnly=true`, la lectura en voz alta
+  IGNORA el texto del cuerpo (la dirección/destino, que no aporta nada al repetirse a cada
+  paso) y lee SOLO el título de la notificación — que en Maps ya ES la distancia ("90 m") —
+  expandiendo la unidad a palabra con `NotificationSpeech.distanceOnly()` ("90 m" → "90
+  metros", con soporte para km/mi/ft también). Si el título no calza con el patrón de
+  distancia (otra app, u otro formato), se lee el título tal cual como respaldo seguro — no
+  se inventa nada raro. Cuando `titleOnly=true`, no se dice el nombre de la app (redundante
+  con esta lectura tan corta) sin importar el estado de `sayName`.
+- ✅ **Formato de `WalletRule`/`AppRule` extendido con compatibilidad hacia atrás** —
+  `WalletConfig`/`AppConfig` ahora persisten 5/7 campos pipe-delimited respectivamente
+  (`name|packageId|enabled|speechMuted|sayName` y, para apps, `...|callsMuted|titleOnly`);
+  reglas guardadas ANTES de v2.41 (solo 3 campos) se siguen leyendo igual, con los campos
+  nuevos en su valor por defecto (`speechMuted=false`, `sayName=true`, `callsMuted=false`,
+  `titleOnly=false`) — nadie pierde su configuración de billeteras/apps al actualizar.
+- ⚠️ **`BackupManager` NO incluye los 4 campos nuevos todavía** (sigue exportando solo
+  `name`/`packageId`/`enabled`) — un backup restaurado en otro teléfono trae las
+  billeteras/apps pero con los toggles nuevos en su default, no como estaban en el teléfono
+  original. No se tocó a propósito (no fue parte de lo pedido); si el usuario nota que
+  restaurar un backup "resetea" estos toggles, hay que sumarlos ahí.
+- **UI:** cada fila de Billetera/Aplicación ahora tiene DOS líneas — la de siempre (ícono +
+  nombre + paquete) y una nueva fila de botones (Switch, 🔊/🔇, 🏷️, [solo apps] 📞, [solo
+  apps] 📍, Quitar) envuelta en `horizontalScroll` (mismo patrón ya usado en v2.13 para evitar
+  que los botones se corten fuera de pantalla en un `Row` que no cabe).
+- **Sin confirmar todavía en el teléfono** — recién se instaló v2.41 por ADB. Falta probar en
+  vivo: el mute de voz por app, el toggle de nombre, silenciar llamadas de WhatsApp, el modo
+  "solo distancia" con Google Maps real, y sobre todo confirmar si el fix del bug de
+  reposteo/repetición resuelve lo que reportó el usuario (no se pudo forzar una repetición
+  para probarlo antes de publicar esta tanda).
+
+### Tanda v2.40 (2026-09-30) — captura de audio de "Ver una vez" (`ViewOnceAudioCaptureService`)
+
+Pedido explícito del usuario, con el motivo real: sus empleados le mandan fotos/video/audio
+de arqueos/balances de caja marcados "Ver una vez" A PROPÓSITO (orden del usuario, "por
+seguridad" — para que no quede en el WhatsApp del empleado) — pero el usuario necesita un
+respaldo del lado de administrador por si hay una contingencia o un malentendido. Es uso
+INTERNO entre el usuario y sus propios empleados (la app no la usan clientes) — no es
+captura de contenido de terceros ajenos al negocio.
+
+- ✅ **Confirmado en vivo que foto/video "Ver una vez" son IMPOSIBLES de capturar** —
+  `adb shell screencap` con el visor de "Ver una vez" abierto en pantalla falló por completo
+  (0 bytes, exit code 1), mientras que la MISMA prueba en el escritorio normal, segundos
+  después, funcionó perfecto (imagen válida). WhatsApp pone `FLAG_SECURE` en la ventana del
+  visor — la misma protección de apps bancarias contra captura de pantalla — que bloquea por
+  igual el screenshot básico, `AccessibilityService.takeScreenshot()` (la documentación de
+  Android dice explícitamente que no soporta ventanas con `FLAG_SECURE`) y la grabación de
+  pantalla vía `MediaProjection` (contenido seguro sale en negro). No hay forma de programarlo
+  distinto — es Android mismo rechazándolo a nivel de sistema operativo.
+- ✅ **Confirmado en vivo que el AUDIO no tiene esa misma restricción** — con una nota de voz
+  "Ver una vez" reproduciéndose, `adb shell dumpsys audio` mostró la sesión de reproducción
+  activa de WhatsApp (`AudioPlaybackConfiguration ... state:started ... usage=USAGE_UNKNOWN`)
+  SIN ninguna de las banderas que bloquean captura de audio
+  (`FLAG_NO_MEDIA_PROJECTION`/`FLAG_NO_SYSTEM_CAPTURE`) — `FLAG_SECURE` es una bandera de
+  VENTANA (visual), el audio es un subsistema completamente aparte en Android, así que la
+  misma protección no aplica ahí.
+- ✅ **`ViewOnceAudioCaptureService.kt` (nuevo)** — foreground service que, una vez "armado",
+  usa `AudioPlaybackCaptureConfiguration` (API 29+) filtrado por el UID de WhatsApp
+  (`addMatchingUid`) para capturar SOLO su audio, con detección de segmentos por energía (RMS
+  de PCM 16-bit: abre un `.wav` nuevo cuando detecta sonido tras silencio, lo cierra tras
+  ~1.5s de silencio sostenido) — no depende de ningún evento de WhatsApp (no expone ninguno
+  público para "empezó/terminó de reproducir"). Cada segmento cerrado se intenta asociar a la
+  notificación de "Mensaje de voz" más cercana en el tiempo que todavía no tenga archivo
+  (`WalletNotificationStore.attachCapturedAudio`, ventana de 15 min — el empleado puede
+  tardar en tocar reproducir); si no encuentra ninguna, se guarda igual como notificación
+  aparte para no perder el audio.
+- ✅ **"Armar grabación" en Configuración, protegido con el PIN de administrador** — el
+  permiso de `MediaProjection` (el mismo que "grabación de pantalla", aunque solo se usa para
+  audio) exige el diálogo del sistema una vez por sesión; Android NO permite dejarlo
+  concedido para siempre en segundo plano — se cae si se cierra la app o se reinicia el
+  teléfono, hay que volver a armarlo a mano. Se pide primero el permiso normal `RECORD_AUDIO`
+  (obligatorio para cualquier `AudioRecord`, aunque la fuente sea otra app y no el
+  micrófono), y solo si se concede se lanza el diálogo de `MediaProjection`.
+  `MainActivity.armViewOnceAudioCapture()`/`disarmViewOnceAudioCapture()` (nuevas) manejan
+  ambos permisos con `ActivityResultContracts`. Nuevos permisos en el manifest:
+  `RECORD_AUDIO`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION` (obligatorio
+  desde Android 14 para este tipo de foreground service).
+- **Primera versión, SIN calibrar ni probar en la práctica todavía** — el umbral de silencio
+  (`SILENCE_RMS_THRESHOLD = 300.0`) es un punto de partida razonable para PCM de 16 bits, sin
+  ajustar con audio real; puede resultar muy sensible (corta con ruido de fondo) o muy poco
+  sensible (no detecta notas de voz grabadas bajito) — a calibrar con la primera prueba real.
+  Falta confirmar en el teléfono: que el diálogo de `MediaProjection` aparezca bien, que la
+  captura realmente funcione con un audio "Ver una vez" real, y que el `.wav` resultante se
+  entienda (duración/calidad).
+- ⚠️ **Recordatorio pendiente para el usuario** (no bloqueante, sugerido por Claude, decisión
+  del usuario si avisar o no): sus empleados eligen "Ver una vez" pensando que no queda
+  guardado en ningún lado — sería bueno que sepan que el teléfono del administrador SÍ lo
+  captura, aunque sea solo para arqueos de caja.
+
+### Tanda v2.39 (2026-09-30) — pantalla "Adjuntos" (agrupa todos los archivos del Historial por tipo)
+
+Pedido explícito del usuario, tras la prueba exhaustiva: quería una forma de ver todos los
+adjuntos recibidos (Video/Audio/Documentos/ArchivosEnGeneral) juntos, en vez de mezclados
+entre el resto de mensajes de otras conversaciones en el Historial normal — "para mejor
+organización".
+
+- ✅ **`AttachmentsScreen` (nueva, `MainActivity.kt`)** — pantalla de solo lectura (sin
+  seleccionar/fijar/nota, eso ya vive en el Historial normal) accesible con un botón nuevo
+  "📎 Adjuntos (n)" en Home, junto a "🗑️ Papelera (n)". Es una VISTA sobre el mismo
+  `WalletNotificationStore.history()` de siempre (capado en 100, igual que el Historial) —
+  **no agrega ningún almacenamiento nuevo ni cambia qué se respalda o reenvía a Telegram**,
+  solo filtra y reordena lo que ya existe. Filtra a `mediaPath != null` y agrupa en 4
+  secciones (con contador, se ocultan si están vacías): 🎥 Videos, 🎤 Audios, 📄 Documentos,
+  📷 Archivos en general (imagen o cualquier tipo que no sea video/audio/documento). Cada
+  tarjeta reutiliza el mismo bloque `when (item.mediaType)` de siempre
+  (`AudioPlayer`/`VideoOpenButton`/`DocumentOpenButton`/`ThumbnailImage`) y el mismo fondo
+  verde (`MediaCardGreen`). `attachmentSection()` (nueva, extensión de `LazyListScope`) evita
+  repetir el bloque de sección 4 veces.
+- **Sin probar en el teléfono todavía** — recién se instaló v2.39 por ADB.
+
+### Accessibility Service para "Ver una vez" — pausa deliberada, no implementado (2026-09-30)
+
+El usuario pidió implementar la opción "a" del Paso 2 (Accessibility Service leyendo la
+pantalla) para poder respaldar también foto/video/audio "Ver una vez" — los 3 únicos casos
+que la prueba exhaustiva confirmó como imposibles con el enfoque actual (leer carpetas).
+
+**Claude planteó una objeción explícita antes de construirlo, en vez de implementarlo
+directo — sin resolver todavía, a la espera de que el usuario decida cómo seguir:**
+"Ver una vez" es una función que el REMITENTE activa a propósito para que su contenido no
+quede guardado en el teléfono de quien lo recibe — es su forma de dar (o no) su consentimiento
+para que algo se conserve. Un Accessibility Service que lee la pantalla mientras se muestra
+y guarda una copia permanente rompe esa expectativa sin que el remitente se entere, sin
+importar cuán buena sea la intención (respaldo de negocio). La diferencia con todo lo demás
+que hace la app: los documentos/facturas normales que un empleado podría "borrar por error"
+son contenido que el remitente YA envió para que quede — jamás lo marcó como efímero. Esto es
+distinto: implica capturar activamente algo que alguien (un cliente, un proveedor, otro
+empleado) marcó específicamente como "quiero que esto NO quede guardado". Desplegado en varias
+sucursales, afecta a cualquier persona que le mande a un empleado algo "Ver una vez" sin saber
+que existe esta captura — no solo al propio usuario, que es quien puede dar su consentimiento
+informado sobre su propio teléfono/pruebas.
+
+**No es un rechazo — es pedirle al usuario que decida con el panorama completo antes de
+construirlo:** opciones que se podrían considerar si quiere seguir adelante (ninguna
+implementada todavía): limitarlo a remitentes que sepan y acepten que ese teléfono guarda
+copia de todo (ej. avisar a los empleados/clientes de la sucursal), o reconsiderar si vale la
+pena el riesgo legal/de confianza frente al beneficio (parece un caso raro comparado con los
+18/21 tipos normales que ya funcionan). Queda pendiente la respuesta del usuario antes de
+tocar código de Accessibility Service.
+
+### Prueba exhaustiva 2026-09-30 — 18/21 tipos confirmados en vivo, "misterio" de v2.37 resuelto, límite real encontrado (Ver una vez)
+
+El usuario armó una prueba sistemática y cronometrada (10:34-11:10, ~2 min entre cada envío,
+desde otro WhatsApp): foto/foto temporal/foto+texto, video/video temporal/video+texto, nota de
+voz/nota de voz temporal, video en `.mkv`/`.mp4`/`.avi`, audio en `.flac`/`.wav`/`.mp3`,
+documentos `.pdf`/`.doc`/`.docx`/`.txt`/`.db`/`.sql`/`.log` — 21 casos. Con v2.38 instalada.
+
+- ✅ **Diagnóstico esta vez con `adb logcat` en vivo (filtrado por la etiqueta `miSecretaria`)
+  en vez del archivo interno** — `ScoSecretariaLogger` ya escribía a logcat además del archivo
+  (`Log.d(TAG, ...)`), simplemente no se había aprovechado antes. Esto resolvió de raíz el
+  problema de siempre (VLC/OSMAnd inundando el archivo de 800 líneas y comiéndose el rastro
+  real) — captura limpia de punta a punta, sin un solo hueco, con el diagnóstico de v2.37
+  (`WhatsApp texto="..." tipo detectado=...`) mostrando EXACTAMENTE qué vio el código para
+  cada una de las ~70 notificaciones de la prueba. **Para diagnósticos futuros, preferir
+  `adb logcat -v time -s miSecretaria:D` sobre leer el archivo interno.**
+- ✅ **18 de 21 exitosos, confirmando de una todos los fixes de v2.31-v2.38:** foto, foto+texto,
+  video, video+texto (con reposteo), nota de voz, video `.mkv`/`.mp4`/`.avi` (los tres como
+  documento excepto mkv que WhatsApp mandó como video nativo + como documento por duplicado),
+  audio `.flac`/`.wav`/`.mp3` (los tres como documento), y los 7 documentos `.pdf`/`.doc`/
+  `.docx`/`.txt`/`.db`/`.sql`/`.log` — **`.db` y `.log` confirmados funcionando en vivo por
+  primera vez** (el fix de v2.33 era preventivo, nunca antes probado con un envío real). El
+  "misterio" de la Tanda v2.37 (doc/imagen sin rastro en el log) no se repitió ni una vez en
+  70 notificaciones — todo indica que SÍ era el archivo de log rotando/contaminado con ruido
+  de otra app, no un bug de detección.
+- 🔍 **Los 3 fallos son sistemáticos, no aleatorios: TODOS son "Temporal" (Ver una vez)** —
+  Foto Temporal, Video Temporal y MensajesDeVoz Temporal (WhatsApp los marca con el emoji ①
+  en vez de 📷/🎥/🎤 — el código los sigue detectando bien como tipo correcto vía
+  `EMOJI_TYPES`, el problema no es la detección). **Confirmado con `find` directo sobre el
+  almacenamiento** en la ventana de tiempo exacta de cada uno de los 3 envíos: NINGÚN archivo
+  nuevo aparece en `WhatsApp Images`/`WhatsApp Video`/`WhatsApp Voice Notes`, ni siquiera un
+  temporal cifrado reconocible en `.Shared` — mientras que los archivos NO-temporales de la
+  misma ventana (nota de voz normal, dos videos, una foto) sí están ahí con su nombre real.
+  **Esto es una restricción DELIBERADA de WhatsApp, no un bug ni un problema de timing**: la
+  función "Ver una vez" existe específicamente para que el contenido NO quede accesible en el
+  almacenamiento del teléfono después de verlo — si WhatsApp lo guardara en la carpeta normal,
+  cualquiera podría burlar la función con un explorador de archivos. **No hay forma de que el
+  enfoque actual (leer las carpetas de medios) capture "Ver una vez" — ni con más reintentos,
+  ni con otro código.** El único camino que podría acceder a esto sería un Accessibility
+  Service leyendo la pantalla mientras se muestra (opción "a" del Paso 2, ya descartada
+  explícitamente por el usuario en 2026-09-23 por ser "más invasivo, más frágil").
+- **Conclusión práctica:** la detección de medios de WhatsApp queda considerada **madura y
+  confirmada en vivo** para el caso de uso real del usuario (foto/video/audio/documento
+  normales, cualquier extensión) — el respaldo de caja chica/facturas funciona. "Ver una vez"
+  queda documentado como limitación conocida y permanente, no como pendiente.
+
 ### Tanda v2.37 (2026-09-25) — video/foto con texto propio no se detectaban + misterio sin resolver (doc/imagen sin rastro en el log)
 
 El usuario probó de nuevo con un envío detallado y cronometrado: audio de voz (llegó), mp3
@@ -1269,43 +1498,45 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2037`, `versionName="2.37"` (ver `app/build.gradle.kts`,
-  subida 2026-09-25). Compila limpio, build Interna generada, **YA INSTALADA por ADB en el
-  teléfono del usuario** (`adb install -r`, confirmado `lastUpdateTime=2026-09-25 17:47:10`).
+- **Versión actual:** `versionCode=2041`, `versionName="2.41"` (ver `app/build.gradle.kts`).
+  Agrega la pantalla "Adjuntos" (v2.39), la captura de audio de "Ver una vez" (v2.40 —
+  **confirmada en vivo, ver "Tanda v2.40"**: grabó 21s de audio real, aunque sin notificación
+  para correlacionar en esa prueba puntual) y control fino de voz por billetera/app + fix del
+  bug de repetición (v2.41, ver esa Tanda más abajo — **SIN probar en vivo todavía**).
+  **Regla de instalación reiterada por el usuario (2026-09-30): por ahora SOLO por ADB al
+  teléfono del usuario — sus sucursales están trabajando en este momento, NO correr
+  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.41 siguen sin publicar a propósito).
+  Compila limpio, build Interna generada, **YA INSTALADA por ADB en el teléfono del usuario**.
   **v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, ver más abajo — el tag
-  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.37 aún no**, falta
-  correr `release.sh` de nuevo. **v2.24 ya se confirmó en vivo** (fotos reales); **v2.29 ya se
-  confirmó en vivo** (el robo de medios entre mensajes por palabra suelta ya no pasa). **v2.30
-  (documentos) confirmado en vivo, con varios bugs reales encontrados y corregidos en
-  v2.31-v2.36 — ver esas tandas más abajo:** (v2.31) el PDF SÍ se detectaba/copiaba, pero
-  terminaba adjunto a la notificación equivocada por una notificación-resumen de grupo vieja;
-  (v2.32) un audio COMPARTIDO (`.mp3`, no nota de voz) nunca se encontraba porque solo se
-  miraba la carpeta de notas de voz, no la de audios compartidos; (v2.33) `.db`/`.log` (que el
-  usuario SÍ necesita recibir, para caja chica) se descartaban en silencio por un filtro de
-  "archivos temporales" copiado de otro proyecto sin ese caso de uso — encontrado por revisión
-  preventiva, antes de que fallara en la práctica; (v2.34) reenvío periódico de medios al bot
-  de Telegram (Paso 2f), mismo patrón que el CSV; (v2.35) probado a fondo con un burst de 9
-  archivos (3 videos, 3 imágenes, voz, mp3, pdf) casi simultáneos — encontró y corrigió dos
-  bugs más: medios de un tipo terminaban adjuntos a notificaciones de OTRO tipo (video↔foto,
-  voz↔video), y notificaciones repostadas por WhatsApp/Android con contenido idéntico se
-  guardaban como duplicadas (el "a veces repite mensajes anteriores" que reportó el usuario);
-  (v2.36) el límite de 100 del Historial (por diseño, para no crecer sin fin) también estaba
-  limitando el CSV/reenvío de medios a Telegram — se separó en dos colas de exportación sin
-  ese límite, decisión tomada con el usuario (eligió "cola separada" sobre "solo subir el
-  número"); (v2.37) video/foto enviados CON TEXTO PROPIO no traían la frase fija y nunca se
-  detectaban — corregido usando el emoji (🎥/📷/🎤/🎵) como señal primaria, mismo principio
-  que documentos desde v2.30. **Misterio sin resolver:** un `.doc`, dos `.7z`, un `.pdf` y una
-  imagen no dejaron NINGÚN rastro en el log a pesar de que el texto guardado sí tenía el emoji
-  correcto — se agregó un log de diagnóstico nuevo para la próxima vez (ver "Tanda v2.37").
-  **Pendiente de verificar en vivo:** el fix de video/foto con texto propio, y sobre todo el
-  misterio de arriba con el log de diagnóstico activo. También sigue pendiente el
-  escaneo genérico de respaldo de v2.25 (nunca se ejercitó, porque las rutas conocidas ya
-  encuentran todo en este teléfono). También pendiente: guardar/probar el
+  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.41 aún no**, falta
+  correr `release.sh` de nuevo cuando el usuario lo pida.
+  **✅ DETECCIÓN DE MEDIOS DE WHATSAPP: MADURA Y CONFIRMADA EN VIVO (prueba exhaustiva
+  2026-09-30, ver esa sección más abajo)** — 18 de 21 tipos probados sistemáticamente
+  funcionaron (foto/video/audio nativos, video en `.mkv`/`.mp4`/`.avi`, audio en `.flac`/
+  `.wav`/`.mp3`, documentos `.pdf`/`.doc`/`.docx`/`.txt`/`.db`/`.sql`/`.log` — estos dos
+  últimos, `.db`/`.log`, confirmados en vivo por primera vez, cerrando el pendiente de
+  v2.33). El "misterio" de la Tanda v2.37 (documentos sin rastro en el log) no se repitió —
+  era el archivo de log interno contaminado con ruido de otra app, resuelto usando
+  `adb logcat` en vez de leer el archivo. Los únicos 3 fallos (foto/video/audio "Ver una
+  vez") son una restricción DELIBERADA de WhatsApp, no un bug — confirmado que esos archivos
+  nunca se escriben en ninguna carpeta accesible del teléfono, ver esa sección para el
+  detalle. **Resumen de qué corrigió cada versión desde v2.30** (todas ya confirmadas en
+  vivo): (v2.31) robo de medios por notificación-resumen de grupo vieja; (v2.32) audio
+  COMPARTIDO (no nota de voz) en carpeta distinta; (v2.33) `.db`/`.log` descartados por un
+  filtro de "temporales"; (v2.34) reenvío periódico de medios al bot de Telegram (Paso 2f);
+  (v2.35) medios cruzados entre tipos + notificaciones repostadas duplicadas; (v2.36) el
+  límite de 100 del Historial también limitaba el CSV/reenvío a Telegram, resuelto con colas
+  de exportación separadas; (v2.37) video/foto con texto propio (emoji como señal primaria);
+  (v2.38) ventana de reintento extendida de 14s a ~3.7 min para archivos grandes.
+  **Pendiente real, no relacionado a medios:** guardar/probar el
   bot de Telegram en Configuración (Paso 3), toda la tanda v2.19 (borrar/fijar/copiar/nota +
   centralización de textos — ya en producción, sin probar), toda la tanda v2.20 (Papelera,
   colores de Configuración, botón Volver verde — sin publicar, sin probar) y el fix de v2.21
   (`withTimeout` en el long-poll de Telegram — corrige un bug real ya confirmado en vivo: el
   bot dejó de responder comandos por ~13h sin crashear, ver esa sección más abajo).
+  **Pendiente de v2.40 (captura de audio "Ver una vez"):** armar la grabación desde
+  Configuración (PIN admin → "🎙️ Armar grabación"), conceder RECORD_AUDIO + el diálogo de
+  MediaProjection, y probar con un audio real "Ver una vez" — nada de esto se probó todavía.
 - **Esquema de versionCode:** `major*1000 + minor` (ej. 2.1 → 2001, 2.700 → 2700), para poder
   hacer muchos builds de prueba (2.1, 2.2, ... 2.700) antes de saltar a la siguiente versión
   entera (3.0) cuando quede estable.
@@ -1631,7 +1862,30 @@ cada exclusión.
   usa `MediaCardGreen` (`ui/theme/Color.kt`, verde claro `#E1F3E5`) como fondo si
   `item.mediaPath != null` (cualquier tipo — imagen/video/audio/documento), para distinguir a
   simple vista las notificaciones con archivo adjunto entre el resto de mensajes de otras
-  conversaciones (pedido explícito del usuario).
+  conversaciones (pedido explícito del usuario). **v2.39:** nuevo botón "📎 Adjuntos (n)" junto
+  a "🗑️ Papelera (n)" abre `AttachmentsScreen` (nueva) — agrupa TODO el historial con
+  `mediaPath != null` en 4 secciones por tipo (video/audio/documento/general), reutilizando
+  los mismos composables de reproducción (`AudioPlayer`/`VideoOpenButton`/
+  `DocumentOpenButton`/`ThumbnailImage`) — es solo una VISTA distinta sobre los mismos datos,
+  no una fuente nueva. **v2.40:** en `SettingsScreen`, sección nueva "🎙️ Audio 'Ver una vez'"
+  (solo visible con `adminUnlocked=true`) con el estado en vivo de
+  `ViewOnceAudioCaptureService.isRunning` (sondeado cada 1s) y un botón para
+  armar/desarmar — `armViewOnceAudioCapture()`/`disarmViewOnceAudioCapture()` (nuevas)
+  encadenan el permiso `RECORD_AUDIO` y, si se concede, el diálogo de consentimiento de
+  `MediaProjection` (`mediaProjectionLauncher`), antes de arrancar
+  `ViewOnceAudioCaptureService` como foreground service.
+- `ViewOnceAudioCaptureService.kt` (nuevo, v2.40) — foreground `Service` que captura el
+  audio de reproducción de WhatsApp (`AudioPlaybackCaptureConfiguration`, API 29+, filtrado
+  por el UID de `com.whatsapp` con `addMatchingUid`) para respaldar notas de voz "Ver una
+  vez" (foto/video NO es posible, ver "Tanda v2.40" y la limitación de `FLAG_SECURE` más
+  abajo). Segmenta por energía (RMS de PCM 16-bit: abre un `.wav` nuevo al detectar sonido
+  tras silencio, lo cierra tras `SILENCE_HANGOVER_MS=1500` de silencio sostenido, descarta
+  segmentos menores a `MIN_SEGMENT_MS=400`) — sin depender de ningún evento propio de
+  WhatsApp. Cada segmento cerrado llama a
+  `WalletNotificationStore.attachCapturedAudio(path, capturedAtMs)`. Requiere re-armarse a
+  mano tras cerrar la app o reiniciar el teléfono (limitación de Android, el consentimiento
+  de `MediaProjection` no se puede dejar permanente). `isRunning` (companion, `@Volatile`)
+  para que la UI de Configuración pueda mostrar el estado sin acoplarse al service.
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,
@@ -1657,7 +1911,18 @@ cada exclusión.
   notificación de otro tipo. También nuevo: `recentMessages` (mapa en memoria, título+texto →
   hora) descarta notificaciones repostadas por WhatsApp/Android con contenido IDÉNTICO dentro
   de `REPOST_WINDOW_MS` (5s) — el dedupe existente por `statusBarNotification.key` no las
-  agarraba porque ese `key` cambia entre reposteos aunque el contenido no cambie. Actualiza el "heartbeat"
+  agarraba porque ese `key` cambia entre reposteos aunque el contenido no cambie. **v2.41:**
+  `REPOST_WINDOW_MS` subió a 60s y pasó a ser deslizante (cada repost renueva el contador);
+  `normalizeForRepost()` (nueva) quita un contador/duración final entre paréntesis con
+  dígitos antes de comparar, para que "Envió un video. (0:04)" y "(0:05)" se reconozcan como
+  el mismo reposteo — ver "Tanda v2.41" para el diagnóstico completo (bug de "repite la
+  notificación anterior" reportado por el usuario). También nuevo: `speak()` (método privado)
+  consulta `WalletRule`/`AppRule` para decidir si silenciar la voz (`speechMuted`), si omitir
+  el nombre (`sayName`), si silenciar llamadas (`callsMuted`, usando
+  `Notification.category == CATEGORY_CALL`) y si usar el modo "solo distancia"
+  (`titleOnly`, vía `SpeechEngine.speakRaw` + `NotificationSpeech.distanceOnly`) — nada de
+  esto afecta el guardado en Historial/notificación del sistema/adjuntos, solo el paso final
+  de lectura en voz alta. Actualiza el "heartbeat"
   (`DisplayPreferences.touchHeartbeat`) en cada evento, para
   que la Home pueda mostrar si el servicio sigue vivo. Expone `requestServiceRebind(context)`
   (llamado desde `MainActivity.onResume`) para pedirle al sistema que reconecte el listener
@@ -1703,6 +1968,13 @@ cada exclusión.
   **`remove()` nuevo (2026-09-23):** `WalletConfig.remove(context, name)` / `AppConfig.remove`
   — antes solo se podía activar/desactivar una regla, no borrarla. Botón "Quitar" junto al
   switch de cada fila en Configuración.
+  **v2.41: `WalletRule`/`AppRule` ganan `speechMuted`/`sayName` (ambas clases) y, solo
+  `AppRule`, `callsMuted`/`titleOnly`** — formato persistido pasa de 3 a 5/7 campos
+  pipe-delimited respectivamente, con parsing tolerante (`parts.getOrNull(n)`) para que
+  reglas guardadas antes de v2.41 sigan cargando bien con los campos nuevos en su default.
+  Setters nuevos: `setSpeechMuted`/`setSayName` (ambas) y `setCallsMuted`/`setTitleOnly`
+  (solo `AppConfig`). No se tocó `detect()` ni el formato de `defaults` — los `WalletRule(...)`
+  ahí siguen compilando con los campos nuevos en su valor por defecto.
 - `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23, ruta
   corregida v2.24, escaneo genérico de respaldo v2.25, subcarpetas por semana v2.28,
   exclusión de resúmenes de grupo v2.31, dos carpetas de audio v2.32, extensiones legítimas
@@ -1816,7 +2088,12 @@ cada exclusión.
   usa pitch/rate de `VoiceProfile` como respaldo. `speakText()` lee texto libre troceando
   por el límite de caracteres del motor (pantalla "Leer"). Soporta `pause()`/`resume()` a
   nivel de trozo (Android TTS no tiene pausa real nativa, así que no es exacto palabra por
-  palabra, pero funciona bien para textos largos).
+  palabra, pero funciona bien para textos largos). **v2.41:** `speak(context, item, sayName)`
+  gana el parámetro `sayName` (default `true`, sin cambio de comportamiento para quien no
+  toque el botón nuevo) — se lo pasa a `NotificationSpeech.general()`/
+  `AmountSpeech.buildSpeechText()`. `speakRaw(context, utteranceId, text)` (nuevo) lee un
+  texto ya armado tal cual, sin pasar por esas dos funciones — lo usa el modo "solo
+  distancia" de `AppRule.titleOnly`.
 - `AmountSpeech.kt` — parseo de montos ("Bs3.29", "Bs1.2", "Bs. 1.20"...) a frase hablada
   ("3 Bolivianos con 29 centavos"). Regla importante: un solo dígito decimal se rellena a la
   derecha (`.2` → 20 centavos, no 2). Usa "Un" en vez de "1" para concordancia de género.
@@ -1824,9 +2101,15 @@ cada exclusión.
   39 centavos" — ahora `parseAmount()` distingue separador de miles vs. decimal por la
   posición del último `.`/`,` y la cantidad de dígitos que le siguen (1-2 dígitos = decimal,
   0 o 3+ = miles), así que `2,392.69` se lee correctamente "Dos mil trecientos noventa y dos
-  Bolivianos con sesenta y nueve centavos".
+  Bolivianos con sesenta y nueve centavos". **v2.41:** `buildSpeechText(wallet, message,
+  sayName)` gana `sayName` (default `true`) — si es falso, omite "wallet, " al principio.
 - `NotificationSpeech.kt` — frase hablada para apps "generales" (no billeteras);
-  reemplaza URLs por "hay un link".
+  reemplaza URLs por "hay un link". **v2.41:** `general(appLabel, message, sayName)` gana
+  `sayName` (default `true`, igual que `AmountSpeech`). `distanceOnly(title)` (nuevo) — para
+  el modo "solo distancia" (`AppRule.titleOnly`, pensado para Google Maps): si el título
+  calza con un patrón de distancia (`"90 m"`, `"1.2 km"`, etc.) lo devuelve con la unidad
+  expandida a palabra ("90 metros"); si no calza, devuelve el título tal cual (respaldo
+  seguro para cualquier app/formato que no sea esto).
 - `PaymentMessageDetector.kt` — distingue pago real de publicidad de la billetera
   (heurística: requiere monto + frase típica de pago como "recibiste"/"envió"/"yapeo").
   La publicidad se guarda en Historial y en el log, pero no se lee ni dispara overlay,
@@ -1861,7 +2144,13 @@ cada exclusión.
   Telegram — con estas colas independientes, ya no importa cuánto tarde el envío ni cuántas
   notificaciones lleguen mientras tanto. `setMedia()` también actualiza la copia en
   `exportMediaQueue()` para que un reintento exitoso (4s/10s después) no quede "invisible"
-  para el reenvío.
+  para el reenvío. **v2.40:** `attachCapturedAudio(path, capturedAtMs)` (nueva) — recibe cada
+  `.wav` que cierra `ViewOnceAudioCaptureService` y busca, entre las notificaciones de
+  "Mensaje de voz" sin `mediaPath` todavía, la más cercana en el tiempo a `capturedAtMs`
+  (ventana `CAPTURED_AUDIO_MATCH_WINDOW_MS = 15 min`, para dar tiempo a que el empleado toque
+  reproducir); si encuentra una, llama a `setMedia()` sobre ESA; si no, crea una
+  `WalletNotification` nueva independiente ("🎙️ Audio capturado (Ver una vez, sin
+  notificación asociada)") para no perder el audio aunque no se pueda correlacionar.
 - `BackupManager.kt` — backup/restauración en JSON de: preferencias, billeteras, apps
   generales, **y desde v2.13 también token+Chat ID+intervalo de Telegram** (sección
   `"telegram"`, a propósito SIN el nombre de sucursal — cada teléfono conserva el suyo). Es la
@@ -2025,6 +2314,22 @@ quitaron del repo (recuperables del historial de git si hiciera falta):
 
 ## Pendiente / limitaciones conocidas
 
+- **"Ver una vez" (foto/video/audio) de WhatsApp: IMPOSIBLE de respaldar, permanente.**
+  Confirmado con una prueba exhaustiva y sistemática (2026-09-30, ver esa sección más
+  arriba): a diferencia de un medio normal, WhatsApp NUNCA escribe el archivo de "Ver una
+  vez" en ninguna carpeta accesible del teléfono (`WhatsApp Images`/`Video`/`Voice Notes`,
+  ni siquiera un temporal reconocible en `.Shared`) — confirmado con `find` directo sobre el
+  almacenamiento en la ventana exacta de tres envíos de prueba (foto, video y nota de voz,
+  los tres "Ver una vez"), mientras que los archivos NO-temporales de la misma sesión sí
+  aparecían con su nombre real. Es una restricción DE DISEÑO de WhatsApp (si lo guardara en
+  la carpeta normal, cualquiera podría burlar la función "se ve una sola vez" con un
+  explorador de archivos), no un bug ni un problema de tiempo/reintentos — ningún cambio de
+  código en `WhatsAppMediaScanner` puede resolver esto mientras el enfoque siga siendo "leer
+  las carpetas de medios". El único camino que podría acceder a este contenido sería un
+  Accessibility Service leyendo la pantalla mientras se muestra (opción "a" del Paso 2,
+  descartada explícitamente por el usuario el 2026-09-23 por ser "más invasivo, más frágil
+  ante actualizaciones de WhatsApp"). Si el usuario alguna vez necesita respaldar
+  específicamente contenido "Ver una vez", habría que reabrir esa decisión.
 - **YASTA sin packageId real:** `WalletConfig.defaults` trae `YASTA` con `packageId=""`
   desde el código original (pre-Claude) — nunca se detecta porque busca literalmente la
   palabra "yasta" en el mensaje (que no aparece en notificaciones reales). No se corrigió

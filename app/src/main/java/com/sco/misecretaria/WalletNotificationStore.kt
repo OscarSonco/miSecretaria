@@ -7,6 +7,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 enum class PinToggleResult { PINNED, UNPINNED, LIMIT_REACHED }
 
@@ -122,6 +123,35 @@ object WalletNotificationStore {
         // el worker la revise seguiría viendo `mediaPath = null` y la descartaría sin enviarla.
         save(EXPORT_MEDIA_QUEUE, exportMediaQueue().map { if (it.id == id) it.copy(mediaPath = path, mediaType = type) else it })
     }
+
+    // v2.40: ventana para asociar un audio capturado (ver ViewOnceAudioCaptureService) con la
+    // notificación "Mensaje de voz" que lo originó — se usa una ventana ancha porque el
+    // empleado puede tardar en tocar "reproducir" después de recibir el mensaje.
+    private const val CAPTURED_AUDIO_MATCH_WINDOW_MS = 15 * 60 * 1000L
+
+    /**
+     * v2.40: asocia un archivo de audio capturado (`ViewOnceAudioCaptureService`, para "Ver
+     * una vez" — WhatsApp bloquea la captura de pantalla ahí, pero no la de audio) con la
+     * notificación de voz más cercana en el tiempo que todavía no tenga archivo. Si no
+     * encuentra ninguna candidata dentro de la ventana (ej. la notificación nunca llegó a
+     * mostrarse, o el desfase fue mayor), igual guarda el audio como una notificación nueva
+     * — nunca se descarta un audio ya capturado solo por no encontrar dueño.
+     */
+    @Synchronized
+    fun attachCapturedAudio(path: String, capturedAtMs: Long) {
+        val candidates = history().filter { it.mediaPath == null && it.message.contains("Mensaje de voz", ignoreCase = true) }
+        val best = candidates.minByOrNull { kotlin.math.abs(parseReceivedAtMs(it.receivedAt) - capturedAtMs) }
+        val gap = best?.let { kotlin.math.abs(parseReceivedAtMs(it.receivedAt) - capturedAtMs) }
+        if (best != null && gap != null && gap <= CAPTURED_AUDIO_MATCH_WINDOW_MS) {
+            setMedia(best.id, path, "audio")
+        } else {
+            val capturedAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(capturedAtMs))
+            add(WalletNotification(UUID.randomUUID().toString(), "WhatsApp", "Ver una vez", "🎙️ Audio capturado (Ver una vez, sin notificación asociada)", capturedAt, NotificationKind.GENERAL, mediaPath = path, mediaType = "audio"))
+        }
+    }
+
+    private fun parseReceivedAtMs(receivedAt: String): Long =
+        runCatching { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).parse(receivedAt)?.time }.getOrNull() ?: 0L
 
     /** Papelera: "eliminar" desde el Historial no borra de verdad — mueve a esta lista, de
      * donde se puede restaurar o vaciar (borrado permanente) más tarde. */

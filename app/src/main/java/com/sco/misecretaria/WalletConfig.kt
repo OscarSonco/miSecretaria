@@ -3,7 +3,16 @@ package com.sco.misecretaria
 import android.content.Context
 import java.util.Locale
 
-data class WalletRule(val name: String, val packageId: String, val enabled: Boolean)
+data class WalletRule(
+    val name: String,
+    val packageId: String,
+    val enabled: Boolean,
+    /** v2.41: silencia la lectura en voz alta de esta billetera — el resto (historial,
+     * notificación del sistema, overlay/pantalla completa) sigue funcionando normal. */
+    val speechMuted: Boolean = false,
+    /** v2.41: si es falso, la lectura en voz alta omite el nombre de la billetera al principio. */
+    val sayName: Boolean = true,
+)
 
 object WalletConfig {
     private const val PREFS = "wallet_config_v11"
@@ -25,12 +34,25 @@ object WalletConfig {
             ?: return defaults
         val lines = if (raw.contains("\\n")) raw.split("\\n") else raw.split("\n")
         return lines.mapNotNull { line ->
-            val parts = line.split("|", limit = 3)
-            if (parts.size == 3) WalletRule(parts[0], parts[1], parts[2] == "1") else null
+            // v2.41: formato extendido a 5 campos (speechMuted/sayName); registros guardados
+            // ANTES de v2.41 solo tienen 3 — se leen igual, con los dos nuevos en su default.
+            val parts = line.split("|", limit = 5)
+            if (parts.size < 3) return@mapNotNull null
+            WalletRule(
+                name = parts[0],
+                packageId = parts[1],
+                enabled = parts[2] == "1",
+                speechMuted = parts.getOrNull(3) == "1",
+                sayName = parts.getOrNull(4)?.let { it == "1" } ?: true,
+            )
         }.ifEmpty { defaults }
     }
 
     fun setEnabled(context: Context, name: String, enabled: Boolean) = save(context, rules(context).map { if (it.name == name) it.copy(enabled = enabled) else it })
+
+    fun setSpeechMuted(context: Context, name: String, muted: Boolean) = save(context, rules(context).map { if (it.name == name) it.copy(speechMuted = muted) else it })
+
+    fun setSayName(context: Context, name: String, sayName: Boolean) = save(context, rules(context).map { if (it.name == name) it.copy(sayName = sayName) else it })
 
     fun remove(context: Context, name: String) = save(context, rules(context).filterNot { it.name.equals(name, true) })
 
@@ -61,6 +83,8 @@ object WalletConfig {
 
     private fun save(context: Context, values: List<WalletRule>) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY, values.joinToString("\n") { "${it.name}|${it.packageId}|${if (it.enabled) "1" else "0"}" }).apply()
+            .putString(KEY, values.joinToString("\n") {
+                "${it.name}|${it.packageId}|${if (it.enabled) "1" else "0"}|${if (it.speechMuted) "1" else "0"}|${if (it.sayName) "1" else "0"}"
+            }).apply()
     }
 }

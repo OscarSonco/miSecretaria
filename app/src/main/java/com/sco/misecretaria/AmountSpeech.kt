@@ -10,11 +10,14 @@ object AmountSpeech {
     // "SONCO CHOQUE OSCAR ORLANDO te ha enviado 0,8 Bs" (estilo YASTA/Bille)
     private val NAME_REGEX_TE_HA_ENVIADO = Regex("(?i)^(.+?)\\s+te ha enviado")
 
-    fun buildSpeechText(wallet: String, message: String): String {
+    /** v2.41: `sayName=false` omite el nombre de la billetera al principio (pedido explícito
+     * del usuario). */
+    fun buildSpeechText(wallet: String, message: String, sayName: Boolean = true): String {
         val amountPhrase = amountPhrase(message)
         val name = senderName(message)
         return buildString {
-            append(wallet); append(", Recibiste ")
+            if (sayName) { append(wallet); append(", ") }
+            append("Recibiste ")
             append(amountPhrase ?: "un pago")
             if (!name.isNullOrBlank()) { append(" de "); append(name.trim()) }
         }

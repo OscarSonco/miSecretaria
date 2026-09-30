@@ -81,6 +81,11 @@ notificaciones cuando pasa mucho tiempo sin usarla.
     notificaciones y borrarlas juntas con **"Eliminar seleccionadas"** (pide confirmación).
   - Botón **"Vaciar historial"**: borra TODO el historial de una vez (pide confirmación —
     no se puede deshacer).
+- **📎 Adjuntos**: botón junto a "Papelera" en la pantalla principal — junta TODOS los
+  archivos adjuntos del Historial en una sola vista, agrupados por tipo (🎥 Videos, 🎤
+  Audios, 📄 Documentos, 📷 Archivos en general), en vez de mezclados entre el resto de
+  mensajes de otras conversaciones. Es solo una forma distinta de ver lo mismo que ya está en
+  el Historial — no cambia qué se guarda ni qué se manda por Telegram.
 - **Leer**: pantalla para pegar o escribir cualquier texto y que la app lo lea en voz alta
   (con pausa/reanudar y elección de voz Varón/Mujer).
 
@@ -101,6 +106,20 @@ significa que esa regla no va a detectar nada hasta que la corrijas).
 - **Quitar**: borra esa regla por completo (por ejemplo, para eliminar una entrada vieja o
   duplicada).
 - El interruptor activa/desactiva la regla sin borrarla.
+- **🔊/🔇**: silencia la LECTURA EN VOZ ALTA de esa billetera/app en particular — el resto
+  (Historial, notificación del sistema, adjuntos) sigue funcionando igual, solo deja de
+  escucharse.
+- **🏷️ Con nombre / Sin nombre**: si está en "Sin nombre", la lectura en voz alta ya no
+  antepone el nombre de la billetera/app (ej. dice "Recibiste 50 Bolivianos" en vez de "ZAS,
+  Recibiste 50 Bolivianos").
+- **📞 Llamadas / Sin llamadas** (solo en Aplicaciones): con "Sin llamadas", las notificaciones
+  de LLAMADA (ej. una llamada de WhatsApp) no se anuncian en voz alta — los mensajes normales
+  de esa misma app se siguen leyendo igual.
+- **📍 Solo distancia / Mensaje completo** (solo en Aplicaciones, pensado para apps de
+  navegación como Google Maps): con "Solo distancia", se lee ÚNICAMENTE la distancia que trae
+  el título de la notificación ("90 metros"), sin el nombre de la app ni el destino/dirección
+  del cuerpo — útil para no escuchar "Maps, 90 metros, Matheus Pub, edificio Atahualpa..." a
+  cada paso mientras vas navegando.
 
 Si una billetera nunca se detecta, lo más probable es que se agregó con el paquete vacío —
 bórrala con "Quitar" y vuelve a agregarla desde el selector.
@@ -130,34 +149,43 @@ publicada y, si la hay, la descarga e instala directamente — no necesitas busc
 entregó el administrador ya configurada), las actualizaciones te las pasa él directamente en
 un APK nuevo — este botón no encontrará nada porque son builds distintas.
 
-## Funciones en desarrollo (todavía no completas)
+## Medios de WhatsApp — respaldo confirmado (2026-09-30)
 
-- **Medios nuevos de WhatsApp** (fotos/audio/video/documentos que te mandan, en cualquier
-  formato — no importa la extensión): ya se detectan, se guarda una copia propia (sobrevive
-  aunque el remitente la borre) y se muestran/reproducen en el Historial (ver arriba), con
-  fondo **verde** en la tarjeta para distinguirlos a simple vista del resto de mensajes. Se
-  corrigieron dos bugs reales (2026-09-25): (1) si un grupo con mensajes sin leer reenviaba su
-  notificación-resumen justo cuando llegaba un audio/documento real, ese archivo podía quedar
-  adjunto a la notificación equivocada; (2) un audio recibido como archivo compartido (ej. un
-  `.mp3`, distinto de una nota de voz grabada en el chat) nunca se encontraba porque WhatsApp
-  lo guarda en una carpeta distinta a las notas de voz; (3) archivos `.db`/`.log` (ej. reportes
-  o bases de datos de caja chica que te manden tus empleados) se descartaban en silencio, sin
-  guardarlos ni avisar; (4) probado con varios archivos casi juntos (una tanda de 9), algunos
-  quedaban con el archivo de OTRO tipo adjunto (un video con una foto, por ejemplo), y algunos
-  mensajes repetidos por WhatsApp se guardaban duplicados en el Historial; (5) un video o foto
-  enviado junto con un texto propio (no el mensaje "Envió un video." normal de WhatsApp) no se
-  detectaba en absoluto. Corregidos, pendiente de reconfirmar con medios nuevos. ⚠️ Sigue sin
-  explicación un caso puntual: en una prueba, un `.doc`, dos `.7z` y un `.pdf` no llegaron a
-  detectarse sin dejar ningún rastro en el registro interno — se agregó un diagnóstico más
-  detallado para poder confirmar la causa exacta la próxima vez que pase. Nota: para un
-  `.db`/`.log` (o cualquier extensión poco común), el botón "Abrir documento" puede no
-  encontrar una app que lo abra directo en el teléfono — igual queda respaldado, y lo puedes
-  compartir/copiar a tu PC para analizarlo ahí.
-  **Reenvío al bot de Telegram**: cada vez que se manda el CSV periódico (ver "Uso del bot de
-  Telegram" más abajo), también se reenvían las fotos/videos/audios/documentos nuevos guardados
-  desde el último envío — mismo intervalo, sin acción manual. Un archivo de más de 50 MB no se
-  reenvía (límite de Telegram para bots) — queda respaldado igual en el teléfono, solo no viaja
-  al bot. Falta: un checklist en Configuración de qué tipos guardar/reenviar/reproducir.
+Probado a fondo con 21 tipos de envío distintos (fotos, videos, notas de voz, archivos de
+video `.mkv`/`.mp4`/`.avi`, archivos de audio `.flac`/`.wav`/`.mp3`, y documentos `.pdf`/
+`.doc`/`.docx`/`.txt`/`.db`/`.sql`/`.log`): **18 de 21 se detectan, copian y muestran bien**
+en el Historial (fondo **verde** en la tarjeta para distinguirlos a simple vista), sin
+importar la extensión real del archivo. También se reenvían solos al bot de Telegram junto
+con el CSV periódico (mismo intervalo, sin acción manual) — un archivo de más de 50 MB no
+viaja al bot (límite de Telegram), pero igual queda respaldado en el teléfono.
+
+⚠️ **"Ver una vez"** (foto/video/audio marcados con el ícono ① en WhatsApp): confirmado que
+WhatsApp nunca guarda ese archivo en ninguna carpeta del teléfono a la que la app pueda
+acceder, a propósito (es la misma función la que evita que se pueda "hacer trampa" y guardar
+algo que se supone se ve una sola vez).
+- **Foto y video "Ver una vez": excepción permanente, sin solución posible.** WhatsApp
+  protege esa pantalla con `FLAG_SECURE` de Android — la misma protección que usan las apps
+  bancarias contra capturas de pantalla — y eso bloquea CUALQUIER forma de capturarlo
+  (captura de pantalla, grabación de pantalla, o cualquier otro método). No es un error de la
+  app, es una limitación de Android/WhatsApp; si necesitas respaldar algo así, pídeselo a
+  quien te lo mande como un archivo normal, no "Ver una vez".
+- **Audio "Ver una vez": función experimental nueva (v2.40), para uso interno con
+  empleados.** A diferencia de foto/video, el audio SÍ se puede capturar (la protección de
+  arriba es solo visual). En Configuración → PIN de administrador → "🎙️ Audio 'Ver una vez'"
+  hay un botón para **armar la grabación**: pide permiso de micrófono y, después, el diálogo
+  del sistema de "grabación de pantalla" (aunque solo se use para audio — es el mismo permiso
+  que exige Android para este tipo de captura). Mientras está armada, si alguien reproduce un
+  mensaje de voz "Ver una vez" de WhatsApp, la app intenta grabarlo y guardarlo junto a la
+  notificación correspondiente en el Historial. **Limitaciones a tener en cuenta:** hay que
+  volver a armarla a mano cada vez que cierras la app o reinicias el teléfono (Android no
+  permite dejarlo activo para siempre); es la primera versión, sin calibrar con uso real
+  todavía. Pensada para arqueos/balances de caja que los empleados mandan así por seguridad —
+  si la usas, considera avisarles que el respaldo existe.
+
+Falta: un checklist en Configuración de qué tipos guardar/reenviar/reproducir.
+
+## Otras limitaciones conocidas
+
 - La voz "Varón" puede sonar parecida a "Mujer" en teléfonos sin una voz masculina real
   instalada para español (usa "Instalar más voces" en Configuración para revisar qué voces
   trae tu equipo).

@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -16,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -32,6 +34,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
 import com.sco.misecretaria.ui.theme.AccentBlue
@@ -60,6 +63,42 @@ class MainActivity : ComponentActivity() {
             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
         mediaPermissionLauncher.launch(perms)
+    }
+
+    // v2.40 — captura de audio de "Ver una vez" (pedido explícito del usuario, 2026-09-30):
+    // el permiso de MediaProjection ("grabación de pantalla") es lo único que también sirve
+    // para capturar audio de reproducción de otra app — Android exige el mismo diálogo del
+    // sistema que para grabar pantalla, aunque solo se use para audio. No se puede dejar
+    // otorgado para siempre: hay que "armarlo" de nuevo si se cierra la app o se reinicia el
+    // teléfono. Se pide primero RECORD_AUDIO (permiso normal de Android) y recién si se
+    // concede se lanza el diálogo de MediaProjection.
+    private val recordAudioPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchMediaProjectionRequest() else android.widget.Toast.makeText(this, getString(R.string.audio_capture_permission_denied), android.widget.Toast.LENGTH_LONG).show()
+    }
+    private val mediaProjectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val intent = Intent(this, ViewOnceAudioCaptureService::class.java)
+                .putExtra(ViewOnceAudioCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                .putExtra(ViewOnceAudioCaptureService.EXTRA_RESULT_DATA, result.data)
+            ContextCompat.startForegroundService(this, intent)
+        }
+    }
+
+    fun armViewOnceAudioCapture() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            launchMediaProjectionRequest()
+        } else {
+            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun launchMediaProjectionRequest() {
+        val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+        mediaProjectionLauncher.launch(manager.createScreenCaptureIntent())
+    }
+
+    fun disarmViewOnceAudioCapture() {
+        stopService(Intent(this, ViewOnceAudioCaptureService::class.java))
     }
 
     override fun onCreate(state: Bundle?) {
@@ -127,13 +166,13 @@ private fun copyToClipboard(context: Context, text: String) {
     android.widget.Toast.makeText(context, context.getString(R.string.toast_copied), android.widget.Toast.LENGTH_SHORT).show()
 }
 
-private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP, TRASH }
+private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP, TRASH, ATTACHMENTS }
 
 @Composable private fun ScoSecretariaApp(activity: MainActivity) {
     var screen by remember { mutableStateOf(Screen.HOME) }
     var adminUnlocked by remember { mutableStateOf(false) }
     when (screen) {
-        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, openTrash = { screen = Screen.TRASH }, onAdminUnlocked = { adminUnlocked = true })
+        Screen.HOME -> HomeScreen(openSettings = { screen = Screen.SETTINGS }, openRead = { screen = Screen.READ }, openTrash = { screen = Screen.TRASH }, openAttachments = { screen = Screen.ATTACHMENTS }, onAdminUnlocked = { adminUnlocked = true })
         Screen.SETTINGS -> SettingsScreen(
             onBack = { screen = Screen.HOME },
             activity = activity,
@@ -145,6 +184,7 @@ private enum class Screen { HOME, SETTINGS, READ, PICK_WALLET, PICK_APP, TRASH }
         Screen.PICK_WALLET -> InstalledAppsScreen(target = PickerTarget.WALLET, onDone = { screen = Screen.SETTINGS })
         Screen.PICK_APP -> InstalledAppsScreen(target = PickerTarget.APP, onDone = { screen = Screen.SETTINGS })
         Screen.TRASH -> TrashScreen(onBack = { screen = Screen.HOME })
+        Screen.ATTACHMENTS -> AttachmentsScreen(onBack = { screen = Screen.HOME })
     }
 }
 
@@ -196,7 +236,7 @@ enum class PickerTarget { WALLET, APP }
     } }
 }
 
-@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, openTrash: () -> Unit, onAdminUnlocked: () -> Unit) {
+@Composable private fun HomeScreen(openSettings: () -> Unit, openRead: () -> Unit, openTrash: () -> Unit, openAttachments: () -> Unit, onAdminUnlocked: () -> Unit) {
     val context = LocalContext.current
     var history by remember { mutableStateOf(WalletNotificationStore.history()) }
     var pinnedIds by remember { mutableStateOf(WalletNotificationStore.pinnedIds()) }
@@ -278,6 +318,7 @@ enum class PickerTarget { WALLET, APP }
                 TextButton(onClick = { showClearAllConfirm = true }) { Text(stringResource(R.string.action_clear_history)) }
             }
             TextButton(onClick = openTrash) { Text(stringResource(R.string.action_trash, trashCount)) }
+            TextButton(onClick = openAttachments) { Text(stringResource(R.string.action_attachments, history.count { it.mediaPath != null })) }
         }
         if (sources.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
@@ -491,6 +532,62 @@ enum class PickerTarget { WALLET, APP }
     }
 }
 
+/**
+ * Pedido explícito del usuario (2026-09-30): ver todos los archivos adjuntos del Historial
+ * juntos, agrupados por tipo, en vez de mezclados entre el resto de mensajes de otras
+ * conversaciones. Es una VISTA sobre el mismo `history()` de siempre (capado en 100, igual
+ * que el Historial normal) — no agrega ningún almacenamiento nuevo ni cambia qué se
+ * respalda; solo reorganiza lo que ya existe para que sea más fácil de revisar.
+ */
+@Composable private fun AttachmentsScreen(onBack: () -> Unit) {
+    var history by remember { mutableStateOf(WalletNotificationStore.history()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            history = WalletNotificationStore.history()
+            delay(700)
+        }
+    }
+    val withMedia = remember(history) { history.filter { it.mediaPath != null } }
+    val videos = remember(withMedia) { withMedia.filter { it.mediaType == "video" } }
+    val audios = remember(withMedia) { withMedia.filter { it.mediaType == "audio" } }
+    val documents = remember(withMedia) { withMedia.filter { it.mediaType == "document" } }
+    val general = remember(withMedia) { withMedia.filter { it.mediaType != "video" && it.mediaType != "audio" && it.mediaType != "document" } }
+    BackHandler(onBack = onBack)
+    Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onBack); Text(stringResource(R.string.attachments_title), style = MaterialTheme.typography.headlineSmall) }
+        Spacer(Modifier.height(8.dp))
+        if (withMedia.isEmpty()) {
+            Text(stringResource(R.string.attachments_empty_message), style = MaterialTheme.typography.bodyMedium)
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                attachmentSection(R.string.attachments_section_video, videos)
+                attachmentSection(R.string.attachments_section_audio, audios)
+                attachmentSection(R.string.attachments_section_document, documents)
+                attachmentSection(R.string.attachments_section_general, general)
+            }
+        }
+    } }
+}
+
+private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNotification>) {
+    if (items.isEmpty()) return
+    item { Text(stringResource(titleRes, items.size), style = MaterialTheme.typography.titleMedium) }
+    items(items, key = { it.id }) { item ->
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MediaCardGreen)) { Column(Modifier.padding(12.dp)) {
+            Text("${item.wallet} · ${item.receivedAt}")
+            Text(item.message)
+            item.mediaPath?.let { path ->
+                when (item.mediaType) {
+                    "audio" -> AudioPlayer(path)
+                    "video" -> VideoOpenButton(path)
+                    "document" -> DocumentOpenButton(path)
+                    else -> ThumbnailImage(path)
+                }
+            }
+        } }
+    }
+}
+
 @Composable private fun ReadScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var text by remember { mutableStateOf("") }
@@ -611,13 +708,19 @@ enum class PickerTarget { WALLET, APP }
             TextButton(onClick = { activity.restoreBackup() }) { Text(stringResource(R.string.action_restore_backup)) }
         }
         Text(stringResource(R.string.wallets_section_title), style = MaterialTheme.typography.titleMedium)
-        rules.forEach { r -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        rules.forEach { r -> Column(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppIcon(r.packageId)
                 Column { Text(r.name); Text(r.packageId.ifBlank { stringResource(R.string.no_package) }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Switch(checked = r.enabled, onCheckedChange = { WalletConfig.setEnabled(context, r.name, it); rules = WalletConfig.rules(context) })
+                TextButton(onClick = { WalletConfig.setSpeechMuted(context, r.name, !r.speechMuted); rules = WalletConfig.rules(context) }) {
+                    Text(stringResource(if (r.speechMuted) R.string.rule_speech_off else R.string.rule_speech_on))
+                }
+                TextButton(onClick = { WalletConfig.setSayName(context, r.name, !r.sayName); rules = WalletConfig.rules(context) }) {
+                    Text(stringResource(if (r.sayName) R.string.rule_say_name_on else R.string.rule_say_name_off))
+                }
                 TextButton(onClick = { WalletConfig.remove(context, r.name); rules = WalletConfig.rules(context) }) { Text(stringResource(R.string.action_remove)) }
             }
         } }
@@ -625,13 +728,25 @@ enum class PickerTarget { WALLET, APP }
         Spacer(Modifier.height(20.dp))
         Text(stringResource(R.string.apps_section_title), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.apps_section_hint), style = MaterialTheme.typography.bodySmall)
-        appRules.forEach { r -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        appRules.forEach { r -> Column(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppIcon(r.packageId)
                 Column { Text(r.name); Text(r.packageId.ifBlank { stringResource(R.string.no_package) }, style = MaterialTheme.typography.bodySmall, color = if (r.packageId.isBlank()) Color.Red else Color.Gray) }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Switch(checked = r.enabled, onCheckedChange = { AppConfig.setEnabled(context, r.name, it); appRules = AppConfig.rules(context) })
+                TextButton(onClick = { AppConfig.setSpeechMuted(context, r.name, !r.speechMuted); appRules = AppConfig.rules(context) }) {
+                    Text(stringResource(if (r.speechMuted) R.string.rule_speech_off else R.string.rule_speech_on))
+                }
+                TextButton(onClick = { AppConfig.setSayName(context, r.name, !r.sayName); appRules = AppConfig.rules(context) }) {
+                    Text(stringResource(if (r.sayName) R.string.rule_say_name_on else R.string.rule_say_name_off))
+                }
+                TextButton(onClick = { AppConfig.setCallsMuted(context, r.name, !r.callsMuted); appRules = AppConfig.rules(context) }) {
+                    Text(stringResource(if (r.callsMuted) R.string.rule_calls_off else R.string.rule_calls_on))
+                }
+                TextButton(onClick = { AppConfig.setTitleOnly(context, r.name, !r.titleOnly); appRules = AppConfig.rules(context) }) {
+                    Text(stringResource(if (r.titleOnly) R.string.rule_title_only_on else R.string.rule_title_only_off))
+                }
                 TextButton(onClick = { AppConfig.remove(context, r.name); appRules = AppConfig.rules(context) }) { Text(stringResource(R.string.action_remove)) }
             }
         } }
@@ -672,6 +787,27 @@ enum class PickerTarget { WALLET, APP }
             tgStatus = context.getString(R.string.telegram_status_syncing)
         }) { Text(stringResource(R.string.action_sync_now)) }
         if (tgStatus != null) Text(tgStatus!!, style = MaterialTheme.typography.bodySmall)
+        if (adminUnlocked) {
+            Spacer(Modifier.height(20.dp))
+            Text(stringResource(R.string.audio_capture_section_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.audio_capture_section_hint), style = MaterialTheme.typography.bodySmall)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                Text(stringResource(R.string.audio_capture_unsupported), style = MaterialTheme.typography.bodySmall, color = Color.Red)
+            } else {
+                var captureArmed by remember { mutableStateOf(ViewOnceAudioCaptureService.isRunning) }
+                LaunchedEffect(Unit) { while (true) { captureArmed = ViewOnceAudioCaptureService.isRunning; delay(1000) } }
+                Text(
+                    stringResource(if (captureArmed) R.string.audio_capture_status_armed else R.string.audio_capture_status_disarmed),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (captureArmed) AccentGreen else Color.Gray
+                )
+                if (captureArmed) {
+                    Button(onClick = { activity.disarmViewOnceAudioCapture() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))) { Text(stringResource(R.string.action_disarm_audio_capture)) }
+                } else {
+                    Button(onClick = { activity.armViewOnceAudioCapture() }, colors = blue) { Text(stringResource(R.string.action_arm_audio_capture)) }
+                }
+            }
+        }
         Spacer(Modifier.height(20.dp))
         Text(stringResource(R.string.ads_section_title), style = MaterialTheme.typography.titleMedium)
         if (blockedPhrases.isEmpty()) {

@@ -25,13 +25,33 @@ import java.util.UUID
 private const val STALE_NOTIFICATION_MS = 2 * 60 * 1000L
 private const val TELEGRAM_LONGPOLL_TIMEOUT_SEC = 25L
 
-/** v2.35: ventana para descartar reposteos — confirmado en vivo (envío de 9 archivos casi
+/**
+ * v2.35: ventana para descartar reposteos — confirmado en vivo (envío de 9 archivos casi
  * simultáneos) que WhatsApp/Android puede volver a publicar la MISMA notificación (título y
  * texto idénticos, incluida la duración de un video/audio) varias veces en pocos segundos sin
  * que haya nada nuevo de verdad — el dedupe existente (`statusBarNotification.key` + título +
  * texto) no lo agarra porque el `key` cambia entre reposteos aunque el contenido sea idéntico.
- * Esto producía tarjetas duplicadas en el Historial ("a veces repite mensajes anteriores"). */
-private const val REPOST_WINDOW_MS = 5_000L
+ * Esto producía tarjetas duplicadas en el Historial ("a veces repite mensajes anteriores").
+ *
+ * v2.41: subida de 5s a 60s, y ahora es una ventana DESLIZANTE (cada repost visto renueva el
+ * contador, en vez de medir siempre desde el primero) — confirmado en la Tanda v2.31 que este
+ * mismo patrón de reposteo puede repetirse 6+ veces a lo largo de ~2 minutos (ej. WhatsApp
+ * actualizando el progreso de descarga de un video), muy por encima de los 5s originales.
+ * También se normaliza el texto antes de comparar (`normalizeForRepost`), quitando un contador
+ * final entre paréntesis con dígitos (ej. "(0:04)" -> "") — confirmado en la misma Tanda que
+ * WhatsApp reposteaba el MISMO evento con la duración cambiando ("Envió un video. (0:04)",
+ * luego "(0:05)"...), lo que antes lo hacía pasar como "mensaje nuevo" porque el texto exacto
+ * no coincidía letra por letra. Esto es lo que el usuario reportó como "a veces vuelve a leer
+ * la notificación anterior" (2026-09-30) — la notificación reposteada volvía a pasar el dedupe
+ * y se leía en voz alta de nuevo como si fuera un mensaje genuinamente distinto.
+ */
+private const val REPOST_WINDOW_MS = 60_000L
+
+/** Quita un contador/duración final entre paréntesis (ej. "(0:04)", "(45%)") antes de comparar
+ * reposteos — ver `REPOST_WINDOW_MS`. Solo afecta la comparación, el mensaje guardado en el
+ * Historial conserva el texto completo original. */
+private val TRAILING_COUNTER_REGEX = Regex("\\s*\\([^)]*\\d[^)]*\\)\\s*$")
+private fun normalizeForRepost(text: String): String = TRAILING_COUNTER_REGEX.replace(text, "").trim()
 
 class WalletNotificationListener : NotificationListenerService() {
     companion object {
@@ -139,14 +159,17 @@ class WalletNotificationListener : NotificationListenerService() {
         val dedupeKey = "${statusBarNotification.key}|$title|$completeText"
         if (!WalletNotificationStore.markIfNew(dedupeKey)) return
 
-        // v2.35: descarta reposteos del mismo contenido dentro de REPOST_WINDOW_MS (ver esa
-        // constante) — distinto del dedupeKey de arriba, que no los agarra porque el `key` de
-        // Android cambia entre reposteos aunque el contenido sea idéntico.
+        // v2.35/v2.41: descarta reposteos del mismo contenido dentro de REPOST_WINDOW_MS (ver
+        // esa constante) — distinto del dedupeKey de arriba, que no los agarra porque el `key`
+        // de Android cambia entre reposteos aunque el contenido sea idéntico. Ventana deslizante:
+        // cada repost visto renueva `recentMessages[repostKey]`, así una racha larga de reposteos
+        // seguidos queda silenciada de punta a punta, no solo los primeros 60s desde el primero.
         val now = System.currentTimeMillis()
         recentMessages.entries.removeAll { now - it.value > REPOST_WINDOW_MS }
-        val repostKey = "$title|$completeText"
-        if (recentMessages.containsKey(repostKey)) return
+        val repostKey = "$title|${normalizeForRepost(completeText)}"
+        val lastRepost = recentMessages[repostKey]
         recentMessages[repostKey] = now
+        if (lastRepost != null) return
 
         val message = listOf(title, completeText).filter { it.isNotBlank() }.distinct().joinToString(": ")
         if (message.isBlank()) return
@@ -213,7 +236,28 @@ class WalletNotificationListener : NotificationListenerService() {
         if (!isPromo) {
             WalletNotificationNotifier.show(this, item)
             if (kind == NotificationKind.PAYMENT && DisplayPreferences.alertEnabled(this) && !DisplayPreferences.fullScreenEnabled(this)) WalletOverlay.show(this, item)
-            if (DisplayPreferences.speechEnabled(this)) SpeechEngine.speak(this, item)
+            if (DisplayPreferences.speechEnabled(this)) speak(item, walletMatch, appMatch, title, notification)
+        }
+    }
+
+    /**
+     * v2.41: decide CÓMO (o si) leer esta notificación en voz alta, según los interruptores
+     * nuevos por billetera/app — el resto del flujo (historial, notificación del sistema,
+     * overlay/pantalla completa, adjuntos) ya corrió antes de llegar aquí y no se ve afectado
+     * por nada de esto.
+     */
+    private fun speak(item: WalletNotification, walletMatch: String?, appMatch: String?, title: String, notification: Notification) {
+        val walletRule = if (walletMatch != null) WalletConfig.rules(this).firstOrNull { it.name == walletMatch } else null
+        val appRule = if (appMatch != null) AppConfig.rules(this).firstOrNull { it.name == appMatch } else null
+        if (walletRule?.speechMuted == true || appRule?.speechMuted == true) return
+        // `CATEGORY_CALL` es la señal nativa de Android para notificaciones de llamada — no
+        // depende del idioma del teléfono ("Llamada entrante" vs "Incoming call"), a diferencia
+        // de buscar esas palabras en el texto.
+        if (appRule?.callsMuted == true && notification.category == Notification.CATEGORY_CALL) return
+        if (appRule?.titleOnly == true) {
+            SpeechEngine.speakRaw(this, item.id, NotificationSpeech.distanceOnly(title))
+        } else {
+            SpeechEngine.speak(this, item, sayName = walletRule?.sayName ?: appRule?.sayName ?: true)
         }
     }
 

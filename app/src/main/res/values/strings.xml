@@ -34,6 +34,15 @@
     <string name="action_trash">🗑️ Papelera (%1$d)</string>
     <string name="trash_title">Papelera</string>
     <string name="trash_empty_message">La papelera está vacía.</string>
+
+    <!-- Adjuntos -->
+    <string name="action_attachments">📎 Adjuntos (%1$d)</string>
+    <string name="attachments_title">Adjuntos</string>
+    <string name="attachments_empty_message">Todavía no hay ningún archivo adjunto en el historial.</string>
+    <string name="attachments_section_video">🎥 Videos (%1$d)</string>
+    <string name="attachments_section_audio">🎤 Audios (%1$d)</string>
+    <string name="attachments_section_document">📄 Documentos (%1$d)</string>
+    <string name="attachments_section_general">📷 Archivos en general (%1$d)</string>
     <string name="action_restore">♻️ Restaurar</string>
     <string name="action_restore_selected">Restaurar seleccionadas (%1$d)</string>
     <string name="action_restore_all">Restaurar todas</string>
@@ -134,6 +143,28 @@
     <string name="telegram_status_syncing">Sincronizando ahora (revisa comandos y envía el CSV pendiente, sin esperar el intervalo)...</string>
     <string name="ads_section_title">Publicidad bloqueada</string>
     <string name="ads_section_empty">Ninguna todavía — desde el Historial puedes marcar un mensaje como publicidad.</string>
+
+    <!-- Interruptores por billetera/app (v2.41) -->
+    <string name="rule_speech_on">🔊</string>
+    <string name="rule_speech_off">🔇</string>
+    <string name="rule_say_name_on">🏷️ Con nombre</string>
+    <string name="rule_say_name_off">🏷️ Sin nombre</string>
+    <string name="rule_calls_on">📞 Llamadas</string>
+    <string name="rule_calls_off">📞 Sin llamadas</string>
+    <string name="rule_title_only_on">📍 Solo distancia</string>
+    <string name="rule_title_only_off">📍 Mensaje completo</string>
+
+    <!-- Captura de audio "Ver una vez" (v2.40) — solo visible con el PIN de administrador -->
+    <string name="audio_capture_section_title">🎙️ Audio "Ver una vez"</string>
+    <string name="audio_capture_section_hint">Para capturar el audio de mensajes de voz "Ver una vez" (foto/video no es posible, WhatsApp los bloquea). Android exige reactivar este permiso si cierras la app o reinicias el teléfono — no se puede dejar automático para siempre.</string>
+    <string name="audio_capture_unsupported">Tu Android es muy viejo para esta función (necesita Android 10 o más nuevo).</string>
+    <string name="audio_capture_status_armed">🎙️ Grabación activa</string>
+    <string name="audio_capture_status_disarmed">Grabación apagada</string>
+    <string name="action_arm_audio_capture">🎙️ Armar grabación</string>
+    <string name="action_disarm_audio_capture">⏹️ Detener grabación</string>
+    <string name="audio_capture_permission_denied">Sin el permiso de micrófono no se puede armar la grabación.</string>
+    <string name="view_once_capture_channel_name">Captura de audio "Ver una vez"</string>
+    <string name="view_once_capture_notif_title">Grabando audio "Ver una vez" de WhatsApp</string>
 
     <!-- Notificación del sistema / pantalla completa / aviso flotante (compartidas) -->
     <string name="notif_channel_name">Pagos recibidos</string>

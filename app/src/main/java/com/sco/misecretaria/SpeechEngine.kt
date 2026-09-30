@@ -15,13 +15,24 @@ object SpeechEngine {
         if (tts == null) tts = TextToSpeech(context.applicationContext) { if (it == TextToSpeech.SUCCESS) tts?.language = Locale.forLanguageTag("es-BO") }
     }
 
-    fun speak(context: Context, item: WalletNotification) {
+    /** v2.41: `sayName=false` (per-billetera/app, ver `WalletRule`/`AppRule`) omite el nombre
+     * al principio del texto hablado. */
+    fun speak(context: Context, item: WalletNotification, sayName: Boolean = true) {
         init(context)
         applyVoiceProfile(context)
         tts?.setOnUtteranceProgressListener(null)
-        val text = if (item.kind == NotificationKind.GENERAL) NotificationSpeech.general(item.wallet, item.message)
-                   else AmountSpeech.buildSpeechText(item.wallet, item.message)
+        val text = if (item.kind == NotificationKind.GENERAL) NotificationSpeech.general(item.wallet, item.message, sayName)
+                   else AmountSpeech.buildSpeechText(item.wallet, item.message, sayName)
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, item.id)
+    }
+
+    /** v2.41: lee un texto ya armado tal cual (ej. el modo "solo distancia" de Maps), sin pasar
+     * por `NotificationSpeech`/`AmountSpeech`. */
+    fun speakRaw(context: Context, utteranceId: String, text: String) {
+        init(context)
+        applyVoiceProfile(context)
+        tts?.setOnUtteranceProgressListener(null)
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 
     /** Lee texto libre (pantalla "Leer"), troceando textos largos. Soporta pausa/reanudar por trozo. */
