@@ -589,7 +589,7 @@ def texto_ayuda() -> str:
         "Ejemplo: /notificarpantalla TODOS Vino el proveedor, revisen\n\n"
         "Con ambos puedes usar el nombre/código de una sucursal en vez de TODOS, para avisarle solo a esa.\n\n"
         "/renombrar <código_actual> <nombre_nuevo>\nCambia el nombre de una sucursal (código/nombre debe coincidir exacto).\n\n"
-        f"{CMD_LISTADO}\nLista todas las sucursales conocidas y hace cuánto se vieron activas — útil para saber qué nombres usar en miSecretaria_BilleterasAplicacion.txt.\n\n"
+        f"{CMD_LISTADO}\nLista todas las sucursales conocidas, hace cuánto se vieron activas, y un resumen de sus Billeteras/Apps (qué está apagado o sin voz) — útil para saber qué nombres usar en miSecretaria_BilleterasAplicacion.txt y para detectar configuraciones mal hechas.\n\n"
         f"{CMD_PANEL_ON}\nEnciende el panel web (miSecretaria.html) para ver la base de datos.\n"
         f"{CMD_PANEL_OFF}\nApaga ese panel web.\n\n"
         f"{CMD_HELP}\nMuestra esta ayuda."

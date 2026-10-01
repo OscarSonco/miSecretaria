@@ -112,9 +112,11 @@ significa que esa regla no va a detectar nada hasta que la corrijas).
 - **🏷️ Con nombre / Sin nombre**: si está en "Sin nombre", la lectura en voz alta ya no
   antepone el nombre de la billetera/app (ej. dice "Recibiste 50 Bolivianos" en vez de "ZAS,
   Recibiste 50 Bolivianos").
-- **📞 Llamadas / Sin llamadas** (solo en Aplicaciones): con "Sin llamadas", las notificaciones
-  de LLAMADA (ej. una llamada de WhatsApp) no se anuncian en voz alta — los mensajes normales
-  de esa misma app se siguen leyendo igual.
+- **📞 Llamadas / Sin llamadas**: con "Sin llamadas", las notificaciones de LLAMADA (ej. una
+  llamada de WhatsApp) no se anuncian en voz alta — los mensajes normales de esa misma app se
+  siguen leyendo igual. **Desde v2.51, este botón solo aparece en WhatsApp, WhatsApp
+  Business, Telegram, Messenger y "Teléfono"** — en el resto de Aplicaciones no se muestra,
+  porque no tiene sentido (nunca van a mostrar una notificación de llamada).
 - **📍 Solo distancia / Mensaje completo** — con "Solo distancia", se lee ÚNICAMENTE la
   distancia que trae el título de la notificación ("90 metros"), sin el nombre de la app ni
   el destino/dirección del cuerpo — útil para no escuchar "Maps, 90 metros, Matheus Pub,

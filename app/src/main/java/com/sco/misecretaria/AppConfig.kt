@@ -45,6 +45,27 @@ object AppConfig {
 
     fun esAppDeNavegacion(packageId: String): Boolean = PAQUETES_NAVEGACION.any { it.equals(packageId, ignoreCase = true) }
 
+    /**
+     * v2.51: apps donde tiene sentido silenciar LLAMADAS (`callsMuted`) — pedido explícito
+     * del usuario: WhatsApp (normal y Business), Telegram, Messenger, y "Teléfono". Las
+     * primeras cuatro tienen `packageId` fijo y conocido. "Teléfono" (el marcador) NO lo
+     * tiene — cada fabricante (Samsung, Xiaomi, Tecno/HiOS, Google...) usa uno distinto, así
+     * que para esa además se empareja por NOMBRE (como ya hace `detect()` cuando una regla
+     * no tiene `packageId`) — si el admin la agregó desde el selector de apps instaladas, el
+     * nombre que trae por defecto en español suele ser "Teléfono" o "Phone" en inglés.
+     */
+    val PAQUETES_LLAMADAS = setOf(
+        "com.whatsapp",
+        "com.whatsapp.w4b",
+        "org.telegram.messenger",
+        "com.facebook.orca",
+    )
+    private val NOMBRES_LLAMADAS_RESPALDO = setOf("teléfono", "telefono", "phone", "dialer")
+
+    fun esAppDeLlamadas(name: String, packageId: String): Boolean =
+        PAQUETES_LLAMADAS.any { it.equals(packageId, ignoreCase = true) } ||
+            NOMBRES_LLAMADAS_RESPALDO.any { it.equals(name.trim(), ignoreCase = true) }
+
     fun rules(context: Context): List<AppRule> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: return emptyList()
         val lines = if (raw.contains("\\n")) raw.split("\\n") else raw.split("\n")

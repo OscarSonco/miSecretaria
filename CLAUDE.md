@@ -89,6 +89,33 @@ el usuario:
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
 
+### Tanda v2.51 (2026-10-01) — "Llamadas/Sin llamadas" solo para apps que de verdad hacen llamadas
+
+Mismo criterio pedido por el usuario que ya se aplicó a "Solo distancia" en v2.50, esta vez
+para el botón de "Llamadas": "SinLlamadas/Llamadas, solo en aplicaciones de Whatsapp
+Normal/Bussines, Telegram, Messenger, Telefono, no tiene sentido en otras apps".
+
+- ✅ **`AppConfig.PAQUETES_LLAMADAS`/`esAppDeLlamadas()` (nuevos)** — el botón ahora solo se
+  muestra si la app coincide con WhatsApp (`com.whatsapp`), WhatsApp Business
+  (`com.whatsapp.w4b`), Telegram (`org.telegram.messenger`) o Messenger (`com.facebook.orca`)
+  por `packageId` exacto.
+- ⚠️ **"Teléfono" es un caso distinto a propósito — no tiene un `packageId` universal.** A
+  diferencia de las apps de navegación (Google Maps/OsmAnd/Localizador, que SÍ tienen un
+  paquete fijo sin importar la marca del teléfono), el marcador de llamadas varía por
+  fabricante (Google, Samsung, Xiaomi, Tecno/HiOS, etc. cada uno con el suyo) — no hay un
+  solo ID que cubra "Teléfono" en todos los celulares de todas las sucursales. Por eso,
+  ADEMÁS de los 4 `packageId` fijos, `esAppDeLlamadas()` también compara por NOMBRE
+  ("Teléfono"/"Telefono"/"Phone"/"Dialer", sin distinguir mayúsculas) — mismo principio que
+  ya usa `detect()` cuando una regla no tiene `packageId` (emparejar por nombre). Funciona
+  porque el nombre que trae por defecto la app del marcador (vía el selector de apps
+  instaladas) suele ser literalmente "Teléfono" en un celular en español.
+- **Mismo patrón de UI que v2.50:** el botón se envuelve en `if
+  (AppConfig.esAppDeLlamadas(r.name, r.packageId))` en `MainActivity.kt`, justo donde antes
+  siempre se mostraba sin condición.
+- **Sin confirmar todavía en vivo** — recién se instaló v2.51 por ADB. Falta confirmar que
+  el botón sigue apareciendo para WhatsApp/Telegram/Messenger/Teléfono, y que ya NO aparece
+  para el resto (Maps, OsmAnd, Tasks, Lite, etc.).
+
 ### Tanda v2.50 (2026-09-30) — "Solo distancia/Mensaje completo" solo para apps de navegación
 
 🐛→✅ **Reportado por el usuario en vivo:** "no aparece esa opción [Mensaje completo/Solo
@@ -1885,7 +1912,7 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2050`, `versionName="2.50"` (ver `app/build.gradle.kts`).
+- **Versión actual:** `versionCode=2051`, `versionName="2.51"` (ver `app/build.gradle.kts`).
   Agrega la pantalla "Adjuntos" (v2.39), la captura de audio de "Ver una vez" (v2.40 —
   **confirmada en vivo, ver "Tanda v2.40"**: grabó 21s de audio real, aunque sin notificación
   para correlacionar en esa prueba puntual), control fino de voz por billetera/app + fix del
@@ -1898,15 +1925,17 @@ guardar todo en un historial dentro de la app.
   a bloquearla — el ciclo completo PC→Firebase→teléfono funciona), `/help` movido entero a
   la PC + teclado persistente de comandos, arreglando las respuestas repetidas (v2.47),
   Billeteras/Aplicaciones centralizadas con targeting por sucursal + `/listado` — etapa 1
-  (v2.48) y etapa 2 con el resumen de configuración por sucursal (v2.49) —, y el botón "Solo
-  distancia/Mensaje completo" restringido a apps de navegación (v2.50 — **bug real reportado
-  en vivo**, ver esa Tanda; ninguna de v2.41/2.42/2.43/2.47/2.48/2.49 confirmada todavía).
+  (v2.48) y etapa 2 con el resumen de configuración por sucursal (v2.49) —, el botón "Solo
+  distancia/Mensaje completo" restringido a apps de navegación (v2.50 — bug real reportado
+  en vivo), y el mismo criterio aplicado al botón "Llamadas" — solo WhatsApp/WhatsApp
+  Business/Telegram/Messenger/Teléfono (v2.51 — ver esas Tandas; ninguna de
+  v2.41/2.42/2.43/2.47/2.48/2.49/2.50 confirmada todavía).
   **Regla de instalación reiterada por el usuario (2026-09-30): por ahora SOLO por ADB al
   teléfono del usuario — sus sucursales están trabajando en este momento, NO correr
-  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.50 siguen sin publicar a propósito).
+  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.51 siguen sin publicar a propósito).
   Compila limpio, build Interna generada, **YA INSTALADA por ADB en el teléfono del usuario**.
   **v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, ver más abajo — el tag
-  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.50 aún no**, falta
+  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.51 aún no**, falta
   correr `release.sh` de nuevo cuando el usuario lo pida.
   **✅ DETECCIÓN DE MEDIOS DE WHATSAPP: MADURA Y CONFIRMADA EN VIVO (prueba exhaustiva
   2026-09-30, ver esa sección más abajo)** — 18 de 21 tipos probados sistemáticamente
@@ -2373,6 +2402,18 @@ cada exclusión.
   Setters nuevos: `setSpeechMuted`/`setSayName` (ambas) y `setCallsMuted`/`setTitleOnly`
   (solo `AppConfig`). No se tocó `detect()` ni el formato de `defaults` — los `WalletRule(...)`
   ahí siguen compilando con los campos nuevos en su valor por defecto.
+  **v2.48: `upsert()` nuevo (ambas)** — agrega o actualiza UNA regla por nombre sin tocar las
+  demás (usado por `WalletAppSync`, ver esa clase). **v2.50: `AppConfig.PAQUETES_NAVEGACION`/
+  `esAppDeNavegacion()` (nuevos)** — el botón "Solo distancia/Mensaje completo" en
+  Configuración ahora solo se muestra para apps cuyo `packageId` esté en ese set (Google
+  Maps, "Localizador"/Find My Device, OsmAnd) — pedido explícito del usuario tras reportar
+  que el botón no le cabía en pantalla en su celular (demasiados botones por fila para apps
+  donde ese ajuste no tenía sentido de todos modos).
+  **v2.51: `AppConfig.PAQUETES_LLAMADAS`/`esAppDeLlamadas()` (nuevos), mismo criterio para el
+  botón "Llamadas"** — WhatsApp/WhatsApp Business/Telegram/Messenger por `packageId` exacto,
+  más un respaldo por NOMBRE ("Teléfono"/"Phone"/"Dialer") para el marcador de llamadas, que
+  a diferencia de las apps de navegación NO tiene un `packageId` universal (cada fabricante
+  usa el suyo).
 - `WhatsAppMediaScanner.kt` (nuevo, Paso 2 fase 1, 2026-09-23; **reescrito v2.23, ruta
   corregida v2.24, escaneo genérico de respaldo v2.25, subcarpetas por semana v2.28,
   exclusión de resúmenes de grupo v2.31, dos carpetas de audio v2.32, extensiones legítimas
@@ -2532,6 +2573,24 @@ cada exclusión.
   return` — corre en cada ciclo del worker periódico sin depender de que Telegram esté
   configurado. Si la descarga falla (sin internet, archivo aún no publicado), no toca nada
   local — se reintenta solo en el próximo ciclo.
+- `WalletAppSync.kt` (nuevo, v2.48, etapa 1) — descarga `billeteras_aplicaciones.json`
+  (mismo Firebase Hosting) y, a diferencia de `AdFilterSync`, NO reemplaza toda la lista
+  local — APLICA cada entrada puntualmente (`WalletConfig.upsert()`/`AppConfig.upsert()`,
+  o `remove()` si trae `"quitar": true`), filtrando primero por `destino` (`"TODOS"` o
+  nombres de sucursal) contra `DisplayPreferences.deviceLabel()` propio. Los campos
+  ausentes en una entrada (vía `JSONObject.has()`) preservan el valor local existente en vez
+  de resetearlo a un default — así el admin puede sincronizar solo el campo que le interesa
+  sin pisar otros ajustes que una sucursal ya haya personalizado. Llamado desde
+  `TelegramSyncWorker.doWork()`, igual que `AdFilterSync`.
+- `ConfigReportSync.kt` (nuevo, v2.49, etapa 2) — el camino INVERSO a los dos anteriores:
+  en vez de DESCARGAR configuración, la SUBE — manda la configuración actual de
+  `WalletConfig`/`AppConfig` de este teléfono como un JSON al chat de Telegram
+  (`TelegramClient.sendDocument`, mismo mecanismo que el CSV/medios), solo cuando cambió
+  desde el último envío (compara un hash guardado en `SharedPreferences` propio,
+  `config_report_v1`). `csv_importer.py` lo recoge y `/listado` lo resume — ver esa Tanda.
+  Llamado desde `TelegramSyncWorker.doWork()`, junto a `sendPendingCsv`/`sendPendingMedia`
+  (a diferencia de `AdFilterSync`/`WalletAppSync`, SÍ depende de que Telegram esté
+  configurado, porque manda algo en vez de solo leer).
 - `InstalledAppsProvider.kt` — lista las apps instaladas con ícono de lanzador (usa el
   `<queries>` del manifest para verlas todas en Android 11+, sin permisos especiales).
   Alimenta la pantalla "Elegir desde apps instaladas" (botón en Billeteras y en Apps

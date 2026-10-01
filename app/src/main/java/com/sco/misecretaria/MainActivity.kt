@@ -835,8 +835,10 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
                 TextButton(onClick = { AppConfig.setSayName(context, r.name, !r.sayName); appRules = AppConfig.rules(context) }) {
                     Text(stringResource(if (r.sayName) R.string.rule_say_name_on else R.string.rule_say_name_off))
                 }
-                TextButton(onClick = { AppConfig.setCallsMuted(context, r.name, !r.callsMuted); appRules = AppConfig.rules(context) }) {
-                    Text(stringResource(if (r.callsMuted) R.string.rule_calls_off else R.string.rule_calls_on))
+                if (AppConfig.esAppDeLlamadas(r.name, r.packageId)) {
+                    TextButton(onClick = { AppConfig.setCallsMuted(context, r.name, !r.callsMuted); appRules = AppConfig.rules(context) }) {
+                        Text(stringResource(if (r.callsMuted) R.string.rule_calls_off else R.string.rule_calls_on))
+                    }
                 }
                 if (AppConfig.esAppDeNavegacion(r.packageId)) {
                     TextButton(onClick = { AppConfig.setTitleOnly(context, r.name, !r.titleOnly); appRules = AppConfig.rules(context) }) {
