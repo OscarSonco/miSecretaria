@@ -89,6 +89,188 @@ el usuario:
 - **Publicada por Claude a pedido explícito del usuario** (2026-09-25, "hay un desktop para
   subir la última versión, ejecutar eso" — misma autorización que ya se usó para 2.19-2.23).
 
+### Lanzadores `.desktop` alineados con `CotizacionDelDolar` (2026-10-01, fuera de la app Android)
+
+Pedido explícito del usuario, tras preguntar por qué `CotizacionDelDolar` abre en xfce4-terminal
+y miSecretaria en Konsole al ejecutar sus respectivos `.desktop`: "quiero que miSecretaria se
+lance igual que CotizacionDelDolar".
+
+- 🩺 **Diagnóstico (antes de tocar nada):** no era una inconsistencia del sistema — eran dos
+  enfoques distintos a propósito/sin querer en cada proyecto. `CotizacionDelDolar` hardcodea
+  `Exec=xfce4-terminal --maximize --title="..." --command="bash -c '...; exec bash'"` con
+  `Terminal=false` (el propio comando ya abre su terminal, no hace falta que el entorno lo
+  envuelva en otra). miSecretaria usaba `Exec=bash -c "..."` con `Terminal=true` (sin terminal
+  explícita) — ahí es el ENTORNO DE ESCRITORIO quien decide con qué terminal envolverlo,
+  resolviendo contra el sistema de alternativas de Debian (`update-alternatives
+  --config x-terminal-emulator`), que en esta máquina apunta a Konsole (coincide con la sesión
+  KDE activa, `XDG_CURRENT_DESKTOP=KDE`).
+- ✅ **Arreglo:** los tres lanzadores (`miSecretaria_backup.desktop`,
+  `miSecretaria_ImportarCSV.desktop`, `miSecretaria_Update.desktop`) ahora usan el mismo patrón
+  exacto que `CotizacionDelDolar`: `xfce4-terminal --maximize --title="..." --command="bash -c
+  '<script>; exec bash'"` + `Terminal=false` (en vez del `read`/"Presiona Enter para cerrar..."
+  que usaban antes para no cerrarse solos — `exec bash` deja una terminal interactiva abierta
+  al terminar, mismo efecto práctico, mismo mecanismo que ya usa `CotizacionDelDolar`). También
+  se agregó `Version=1.0`/`Path=.../StartupNotify=true` a los tres, por consistencia
+  estructural completa con el formato de `CotizacionDelDolar` (antes les faltaban esas claves).
+  No hizo falta un `cd` previo al script — tanto `backup_proyecto.sh`/`release.sh` (resuelven
+  su propio directorio vía `$(dirname "${BASH_SOURCE[0]}")`/`$(dirname "$0")`) como
+  `csv_importer.py` (`BASE_DIR = Path(__file__).resolve().parent`) ya se ubican solos sin
+  depender del directorio de trabajo con el que se los invoque — se llama a cada uno por su
+  ruta absoluta directamente, igual que hace `CotizacionDelDolar`.
+- **Sin probar en vivo todavía** — cambio de infraestructura de escritorio, no de la app
+  Android ni del contenido de los scripts en sí (nadie tocó `backup_proyecto.sh`/`release.sh`/
+  `csv_importer.py`) — solo CÓMO se abren. Falta que el usuario haga doble clic en alguno para
+  confirmar que ahora abre en xfce4-terminal maximizado, igual que `CotizacionDelDolar`.
+
+### Corrección 2026-10-01 — el usuario renombró los `.desktop`/`.html` con prefijos numéricos, rompía el panel web
+
+El usuario reordenó sus accesos directos en el explorador de archivos agregándoles un prefijo
+numérico (`1_miSecretaria_ImportarCSV.desktop`, `2_miSecretaria_Update.desktop`,
+`3_miSecretaria_backup.desktop`, `4_miSecretaria.html`) y preguntó si eso afectaba algo.
+Investigación (antes de tocar nada): se buscó cada nombre en todo el proyecto.
+
+- ✅ **Los tres `.desktop` no rompen nada** — ningún archivo los referencia por nombre exacto,
+  son lanzadores independientes que el usuario abre a mano con doble clic.
+- 🐛→✅ **El `.html` SÍ rompía el panel web** — `web_server.py` llamaba
+  `render_template("miSecretaria.html", ...)` con el nombre fijo, y ya no existe ningún archivo
+  con ese nombre exacto (ahora es `4_miSecretaria.html`); Flask iba a tirar
+  `TemplateNotFound` en cuanto alguien visitara `http://localhost:8766`.
+  **Arreglo robusto (no solo apuntar al nuevo nombre):** `_nombre_plantilla()` (nueva, en
+  `web_server.py`) busca con `BASE_DIR.glob("*miSecretaria.html")` cualquier archivo que
+  TERMINE en `miSecretaria.html`, sin importar qué prefijo le pongan adelante — se calcula una
+  sola vez al arrancar el proceso (`TEMPLATE_NAME`, nivel de módulo) y se usa en el único
+  `render_template(TEMPLATE_NAME, ...)`. Así, si el usuario vuelve a renumerar estos archivos
+  en el futuro (ej. pasa de `4_` a `01_` o a otro esquema), el panel web sigue funcionando sin
+  tocar código — solo hace falta reiniciar `web_server.py` (vía `/paneloff` + `/panelon`, o
+  cerrando y reabriendo el importador) para que note el nombre nuevo, porque se resuelve una
+  sola vez al arrancar, no en cada visita.
+- ✅ **Probado en vivo (import directo del módulo + `app.test_client().get("/")`):** con el
+  archivo real renombrado a `4_miSecretaria.html` en disco, `TEMPLATE_NAME` resolvió
+  correctamente a `"4_miSecretaria.html"` y la ruta `/` devolvió `200 OK` con la página
+  completa (99488 bytes) — confirma que el fix funciona con el nombre real actual, no solo en
+  teoría.
+- **Sin tocar la app Android** — cambio puro de `web_server.py` (herramienta de escritorio en
+  Python), no requiere bump de `versionCode`/`versionName`.
+- ⚠️ **Pendiente, no bloqueante:** el `README.md` y el resto de este `CLAUDE.md` todavía
+  mencionan el archivo como `miSecretaria.html` a secas (sin el prefijo) en texto descriptivo —
+  son menciones de documentación, no rutas que el código resuelva, así que no rompen nada; se
+  pueden actualizar si el usuario quiere que la prosa refleje el nombre exacto actual.
+- ✅ **Segunda ubicación descubierta y resuelta (2026-10-01, mismo día):** el usuario mantiene
+  además una carpeta central de accesos directos de TODOS sus proyectos,
+  `/home/beelinkser5max/Documents/MiDebian/Lanzadores/`, con copias de estos mismos 4 archivos
+  bajo otro esquema de nombre (`miSecretaria_1_ImportarCSV.desktop` en vez de
+  `1_miSecretaria_ImportarCSV.desktop`, etc. — el número va en otra posición). Eran copias
+  independientes (verificado con `diff`, contenido idéntico) — cualquier edición futura en la
+  carpeta del proyecto NO se reflejaba ahí sola. A pedido explícito del usuario ("el 2 [usar
+  symlinks], pero quiero que se mantengan el renombrado") se reemplazaron esas 4 copias por
+  **enlaces simbólicos** (`ln -s`) a los archivos reales del proyecto, **conservando el nombre
+  que ya tenían en `Lanzadores/`** (un symlink puede llamarse distinto de su destino sin
+  problema). Verificado que los 4 enlaces resuelven y se leen bien, mismo tamaño de bytes que
+  antes. **De ahora en más, cualquier edición en
+  `~/Documents/miSecretaria/{1,2,3,4}_miSecretaria*` se refleja automáticamente en
+  `Lanzadores/` sin tener que copiar nada a mano** — si una sesión futura renombra estos 4
+  archivos de nuevo en el proyecto, los symlinks de `Lanzadores/` quedarán rotos (apuntando al
+  nombre viejo) y hay que recrearlos apuntando al nombre nuevo, igual que se haría con
+  cualquier symlink roto por un rename del destino.
+
+### Tanda v2.52 (2026-10-01) — rediseño de Home/Configuración + "Armar grabación" retirada de la UI
+
+Dos pedidos explícitos del usuario en el mismo mensaje: (1) retirar del todo la función de
+captura de audio "Ver una vez" (v2.40) de esta versión y de las futuras, pero dejándola
+documentada y lista para reimplementar si se pide de nuevo; (2) reordenar la pantalla
+principal y Configuración — menos botones en Home, Configuración se abre con el ícono de
+tres puntos, y dos botones se mudan al final de Configuración.
+
+#### "Audio 'Ver una vez'" (Armar grabación) — retirada de la UI, NO borrada del repo
+
+**Qué se quitó (para que la app deje de ofrecer esta función):**
+- `AndroidManifest.xml`: los 3 permisos agregados en v2.40 (`RECORD_AUDIO`,
+  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION`) y la declaración `<service
+  android:name=".ViewOnceAudioCaptureService" .../>` — reemplazados por comentarios XML que
+  dejan el texto exacto a restaurar.
+- `MainActivity.kt`: los lanzadores `recordAudioPermissionLauncher`/`mediaProjectionLauncher`
+  y las funciones `armViewOnceAudioCapture()`/`launchMediaProjectionRequest()`/
+  `disarmViewOnceAudioCapture()` de la clase `MainActivity` — eran el único punto de entrada
+  que pedía los permisos y arrancaba el servicio. También se quitó el bloque completo "🎙️
+  Audio 'Ver una vez'" dentro del panel de Admin (`showAdminDialog`, entre el bloque de
+  Telegram y el de "Compartir") — el estado en vivo (`captureArmed`), los textos, y los
+  botones Armar/Detener.
+- Imports que quedaron sin uso tras esto (`android.content.pm.PackageManager`,
+  `androidx.core.content.ContextCompat`).
+
+**Qué se dejó INTACTO a propósito, para que reimplementarlo sea solo "reconectar", no
+reescribir desde cero:**
+- `ViewOnceAudioCaptureService.kt` completo — el foreground service, la captura por
+  `AudioPlaybackCaptureConfiguration` filtrada al UID de WhatsApp, la segmentación por
+  energía (RMS), todo tal cual v2.40/v2.41 lo dejó. Simplemente ya no lo llama nadie.
+- `WalletNotificationStore.attachCapturedAudio()` — la función que correlaciona un `.wav`
+  capturado con la notificación de "Mensaje de voz" más cercana en el tiempo. Sigue ahí, sin
+  uso (nadie le manda audio porque el servicio no corre), inofensiva.
+- Las 7 strings `audio_capture_*`/`action_arm_audio_capture`/`action_disarm_audio_capture`
+  en `strings.xml` — sin referencias en código ahora, pero listas para que la UI las vuelva a
+  usar tal cual.
+- Toda la explicación técnica de CÓMO funciona (por qué audio sí y foto/video "Ver una vez"
+  no — `FLAG_SECURE` bloquea pantalla pero no el subsistema de audio, confirmado en vivo con
+  `adb shell dumpsys audio`/`screencap`) sigue completa en las secciones **"Tanda v2.40"** y
+  **"Tanda v2.42"** más abajo en este mismo archivo — no se tocó nada de esa documentación.
+
+**Checklist exacto para reimplementarla en el futuro** (sin tener que releer todo el código,
+solo revertir estos 4 puntos):
+1. `AndroidManifest.xml` — reemplazar los dos comentarios nuevos (permisos + `<service>`) por
+   las líneas reales que describen (el texto exacto queda en el comentario mismo).
+2. `MainActivity.kt` — reponer los 2 imports, los 2 `registerForActivityResult` y las 3
+   funciones (`arm/launch/disarm`) en la clase `MainActivity`, exactamente como estaban en
+   v2.40/v2.42 (ver el git log de este archivo, o esta misma sección de CLAUDE.md en una
+   sesión anterior al 2026-10-01 si se necesita el código línea por línea).
+3. `MainActivity.kt` — reponer el bloque "🎙️ Audio 'Ver una vez'" dentro de `showAdminDialog`
+   (entre el `Spacer` después de `adminTgStatus` y el `Spacer` antes de "Compartir").
+4. Subir versión, compilar, instalar y volver a probar en vivo — Android no deja el permiso
+   de `MediaProjection` otorgado para siempre, así que de cualquier forma habrá que volver a
+   "armar" la grabación a mano tras instalar.
+- **No requiere tocar `ViewOnceAudioCaptureService.kt`, `WalletNotificationStore.kt` ni
+  `strings.xml`** — esos tres quedaron listos tal cual están hoy.
+
+#### Rediseño de Home y Configuración (pedido explícito del usuario)
+
+- ✅ **Home: Configuración se abre con el ícono de tres puntos (⋮) arriba a la derecha** —
+  reemplaza el botón azul "Configuración" que vivía junto a "Leer". Nuevo `IconButton` con
+  `Icons.Default.MoreVert` en la esquina superior derecha del encabezado (mismo `Row` que ya
+  tenía el logo+título, ahora con `Arrangement.SpaceBetween`). El triple-tap al logo (PIN de
+  administrador) no cambió, sigue en el mismo lugar.
+- ✅ **Debajo de "miSecretaria Vx.x" ahora dice "RedSonco" en rojo** — reemplaza el subtítulo
+  genérico de siempre ("Asistente de notificaciones..."). Nuevo string `home_brand_label`
+  (reemplaza a `home_subtitle`, que se quitó — sin otros usos en el código).
+- ✅ **Home queda con un solo botón: "Leer"** — con ícono (`Icons.AutoMirrored.Filled.
+  MenuBook`) + etiqueta, en vez de solo texto. El botón de Encendido/Apagado (antes en Home,
+  verde/rojo con el estado "Servicio: escuchando"/"sin actividad") se mudó a Configuración.
+  **Nueva dependencia:** `androidx.compose.material:material-icons-extended` (agregada en
+  `gradle/libs.versions.toml`/`app/build.gradle.kts`) — el proyecto no usaba ningún ícono de
+  Material Icons hasta ahora, solo texto; se necesitó para `MoreVert`/`MenuBook`.
+- ✅ **El botón Encendido/Apagado se mudó a Configuración, al inicio** (antes del primer
+  permiso) — pedido explícito del usuario. **Su texto se simplificó**: antes decía
+  "{NombreApp}: Activado"/"Desactivado" (`service_toggle_on`/`off` con `%1$s`), ahora solo
+  "Activado"/"Desactivado" (pedido explícito: "solamente dirá Activado/Desactivado"). El
+  texto de estado ("Servicio: escuchando ✓"/"sin actividad reciente ⚠") se mudó junto con el
+  botón, por quedar huérfano si se separaban.
+- ✅ **Las 3 filas de permisos (notificaciones/overlay/medios) ahora se ocultan solas en
+  cuanto quedan en verde** (pedido explícito del usuario) — y reaparecen solas si vuelven a
+  quedar en rojo (ej. el usuario revoca el permiso desde Ajustes del sistema mientras la app
+  sigue abierta en otra pantalla). Se logra con un `LaunchedEffect` que revisa los 3 estados
+  cada 1s mientras Configuración está abierta (mismo patrón de polling que ya usa el resto de
+  la app, ej. el heartbeat del servicio) — cada `PermissionRow` ahora está envuelta en `if
+  (!xOk)`, así que directamente no se renderiza si el permiso ya está concedido.
+- ✅ **"Buscar actualización" y "Compartir Aplicación" se mudan al final de Configuración**
+  (pedido explícito del usuario) — antes "Buscar actualización" vivía justo después de los
+  permisos, y "Compartir Aplicación" después de la sección de voz; ahora ambas (con el texto
+  de versión instalada y la tarjeta de actualización disponible, si la hay) quedan juntas al
+  final, después de "Publicidad bloqueada" y antes del cierre de la pantalla.
+- **Sin probar todavía en el teléfono** — recién se instaló v2.52 por ADB. Falta confirmar
+  en pantalla: el ícono de tres puntos abre Configuración, "RedSonco" se ve en rojo bajo la
+  versión, el botón "Leer" se ve con su ícono, el botón Encendido/Apagado aparece arriba de
+  todo en Configuración con el texto corto, los permisos ya concedidos no se ven (solo los
+  que falten), y "Buscar actualización"/"Compartir Aplicación" aparecen al final de la
+  pantalla.
+
 ### Tanda v2.51 (2026-10-01) — "Llamadas/Sin llamadas" solo para apps que de verdad hacen llamadas
 
 Mismo criterio pedido por el usuario que ya se aplicó a "Solo distancia" en v2.50, esta vez
@@ -1912,30 +2094,35 @@ guardar todo en un historial dentro de la app.
   Debian). ⚠️ Ver sección "Gotchas de entorno" abajo — NO compilar desde Windows/SMB.
 - **applicationId / namespace:** `com.sco.misecretaria`
 - **Paquete Kotlin:** `com.sco.misecretaria` (en `app/src/main/java/com/sco/misecretaria/`)
-- **Versión actual:** `versionCode=2051`, `versionName="2.51"` (ver `app/build.gradle.kts`).
+- **Versión actual:** `versionCode=2052`, `versionName="2.52"` (ver `app/build.gradle.kts`).
   Agrega la pantalla "Adjuntos" (v2.39), la captura de audio de "Ver una vez" (v2.40 —
   **confirmada en vivo, ver "Tanda v2.40"**: grabó 21s de audio real, aunque sin notificación
-  para correlacionar en esa prueba puntual), control fino de voz por billetera/app + fix del
-  bug de repetición (v2.41), el panel de Admin como ventana emergente + PIN numérico (v2.42),
-  ese mismo panel absorbiendo TODO Telegram + Compartir Historial/CSV/Log (v2.43), el fix
-  del bug real de `getUpdates?offset=0` que dejaba comandos de Telegram sin responder (v2.44
-  — **CONFIRMADO en vivo**), "Publicidad bloqueada" centralizada desde un archivo maestro vía
-  Firebase Hosting (v2.45-v2.46 — **CONFIRMADO en vivo de punta a punta**: el usuario borró
-  una entrada a mano en la app, tocó "Sincronizar ahora" en el panel de Admin, y la app volvió
-  a bloquearla — el ciclo completo PC→Firebase→teléfono funciona), `/help` movido entero a
-  la PC + teclado persistente de comandos, arreglando las respuestas repetidas (v2.47),
-  Billeteras/Aplicaciones centralizadas con targeting por sucursal + `/listado` — etapa 1
-  (v2.48) y etapa 2 con el resumen de configuración por sucursal (v2.49) —, el botón "Solo
-  distancia/Mensaje completo" restringido a apps de navegación (v2.50 — bug real reportado
-  en vivo), y el mismo criterio aplicado al botón "Llamadas" — solo WhatsApp/WhatsApp
-  Business/Telegram/Messenger/Teléfono (v2.51 — ver esas Tandas; ninguna de
-  v2.41/2.42/2.43/2.47/2.48/2.49/2.50 confirmada todavía).
+  para correlacionar en esa prueba puntual; **retirada de la UI en v2.52**, ver esa Tanda —
+  el código queda intacto y documentado para reimplementar más adelante), control fino de
+  voz por billetera/app + fix del bug de repetición (v2.41), el panel de Admin como ventana
+  emergente + PIN numérico (v2.42), ese mismo panel absorbiendo TODO Telegram + Compartir
+  Historial/CSV/Log (v2.43), el fix del bug real de `getUpdates?offset=0` que dejaba comandos
+  de Telegram sin responder (v2.44 — **CONFIRMADO en vivo**), "Publicidad bloqueada"
+  centralizada desde un archivo maestro vía Firebase Hosting (v2.45-v2.46 — **CONFIRMADO en
+  vivo de punta a punta**: el usuario borró una entrada a mano en la app, tocó "Sincronizar
+  ahora" en el panel de Admin, y la app volvió a bloquearla — el ciclo completo
+  PC→Firebase→teléfono funciona), `/help` movido entero a la PC + teclado persistente de
+  comandos, arreglando las respuestas repetidas (v2.47), Billeteras/Aplicaciones
+  centralizadas con targeting por sucursal + `/listado` — etapa 1 (v2.48) y etapa 2 con el
+  resumen de configuración por sucursal (v2.49) —, el botón "Solo distancia/Mensaje completo"
+  restringido a apps de navegación (v2.50 — bug real reportado en vivo), el mismo criterio
+  aplicado al botón "Llamadas" — solo WhatsApp/WhatsApp Business/Telegram/Messenger/Teléfono
+  (v2.51), y el rediseño de Home/Configuración (ícono de tres puntos, "RedSonco" en rojo,
+  Encendido/Apagado + permisos autoocultables movidos a Configuración, Buscar
+  actualización/Compartir Aplicación al final) junto con retirar "Armar grabación" de la UI
+  (v2.52 — ver esas Tandas; ninguna de v2.41/2.42/2.43/2.47/2.48/2.49/2.50/2.52 confirmada
+  todavía).
   **Regla de instalación reiterada por el usuario (2026-09-30): por ahora SOLO por ADB al
   teléfono del usuario — sus sucursales están trabajando en este momento, NO correr
-  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.51 siguen sin publicar a propósito).
+  `release.sh` hasta que él lo pida de nuevo** (v2.31 a v2.52 siguen sin publicar a propósito).
   Compila limpio, build Interna generada, **YA INSTALADA por ADB en el teléfono del usuario**.
   **v2.30 SÍ se publicó** (el usuario pidió correr `release.sh`, ver más abajo — el tag
-  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.51 aún no**, falta
+  `v2.30` y el commit `2952e90` quedaron en GitHub) — **v2.31 a v2.52 aún no**, falta
   correr `release.sh` de nuevo cuando el usuario lo pida.
   **✅ DETECCIÓN DE MEDIOS DE WHATSAPP: MADURA Y CONFIRMADA EN VIVO (prueba exhaustiva
   2026-09-30, ver esa sección más abajo)** — 18 de 21 tipos probados sistemáticamente
@@ -2294,13 +2481,33 @@ cada exclusión.
   `mediaPath != null` en 4 secciones por tipo (video/audio/documento/general), reutilizando
   los mismos composables de reproducción (`AudioPlayer`/`VideoOpenButton`/
   `DocumentOpenButton`/`ThumbnailImage`) — es solo una VISTA distinta sobre los mismos datos,
-  no una fuente nueva. **v2.40:** en `SettingsScreen`, sección nueva "🎙️ Audio 'Ver una vez'"
-  (solo visible con `adminUnlocked=true`) con el estado en vivo de
-  `ViewOnceAudioCaptureService.isRunning` (sondeado cada 1s) y un botón para
-  armar/desarmar — `armViewOnceAudioCapture()`/`disarmViewOnceAudioCapture()` (nuevas)
-  encadenan el permiso `RECORD_AUDIO` y, si se concede, el diálogo de consentimiento de
-  `MediaProjection` (`mediaProjectionLauncher`), antes de arrancar
-  `ViewOnceAudioCaptureService` como foreground service.
+  no una fuente nueva. **v2.40/v2.42:** sección "🎙️ Audio 'Ver una vez'" dentro del panel de
+  Admin (`showAdminDialog`), con el estado en vivo de `ViewOnceAudioCaptureService.isRunning`
+  (sondeado cada 1s) y un botón para armar/desarmar —
+  `armViewOnceAudioCapture()`/`disarmViewOnceAudioCapture()` encadenaban el permiso
+  `RECORD_AUDIO` y, si se concedía, el diálogo de consentimiento de `MediaProjection`
+  (`mediaProjectionLauncher`), antes de arrancar `ViewOnceAudioCaptureService` como
+  foreground service. **v2.52: todo este bloque y sus 3 funciones/lanzadores se quitaron de
+  `MainActivity.kt`** (pedido explícito del usuario, "lo retiraremos... pero lo tendremos
+  listo para volverlo a implementar") — ver la Tanda v2.52 más arriba para el checklist
+  exacto de qué restaurar y qué quedó intacto (`ViewOnceAudioCaptureService.kt`,
+  `WalletNotificationStore.attachCapturedAudio`, las strings `audio_capture_*`, todos sin
+  tocar). **v2.52, además:** rediseño de Home y Configuración, pedido explícito del usuario
+  — en `HomeScreen`: el botón "Configuración" se reemplazó por un `IconButton` con
+  `Icons.Default.MoreVert` (⋮) en la esquina superior derecha del encabezado; el subtítulo
+  genérico se reemplazó por `home_brand_label` ("RedSonco", en rojo); solo queda el botón
+  "Leer" (ahora con ícono `Icons.AutoMirrored.Filled.MenuBook` + etiqueta); el botón
+  Encendido/Apagado (antes en Home) se movió a `SettingsScreen`, al principio, con su texto
+  simplificado a solo "Activado"/"Desactivado" (antes incluía el nombre de la app). En
+  `SettingsScreen`: las 3 `PermissionRow` (notificaciones/overlay/medios) ahora están
+  envueltas en `if (!xOk)` — un nuevo `LaunchedEffect` revisa los 3 permisos cada 1s mientras
+  la pantalla está abierta (`notifOk`/`overlayOk`/`mediaOk`), así que una fila desaparece
+  sola en cuanto el permiso queda en verde, y reaparece sola si se revoca; "Buscar
+  actualización" (con el texto de versión instalada y la tarjeta de actualización
+  disponible) y "Compartir Aplicación" se movieron al final de la pantalla, después de
+  "Publicidad bloqueada". **Nueva dependencia agregada:** `androidx.compose.material:
+  material-icons-extended` (en `gradle/libs.versions.toml`/`app/build.gradle.kts`) — primera
+  vez que el proyecto usa íconos de Material Icons en vez de solo texto/emoji.
 - `ViewOnceAudioCaptureService.kt` (nuevo, v2.40) — foreground `Service` que captura el
   audio de reproducción de WhatsApp (`AudioPlaybackCaptureConfiguration`, API 29+, filtrado
   por el UID de `com.whatsapp` con `addMatchingUid`) para respaldar notas de voz "Ver una
@@ -2313,6 +2520,8 @@ cada exclusión.
   mano tras cerrar la app o reiniciar el teléfono (limitación de Android, el consentimiento
   de `MediaProjection` no se puede dejar permanente). `isRunning` (companion, `@Volatile`)
   para que la UI de Configuración pueda mostrar el estado sin acoplarse al service.
+  **v2.52: SIN uso desde que se retiró la UI que lo arrancaba** (ver esa Tanda) — el archivo
+  queda intacto a propósito, listo para reconectar.
 - `WalletNotificationListener.kt` — `NotificationListenerService`: detecta pagos/apps
   generales, arma el `WalletNotification`, dispara notificación/overlay/pantalla
   completa/voz según corresponda. Filtra notificaciones-resumen de grupo (`FLAG_GROUP_SUMMARY`,

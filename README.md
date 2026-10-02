@@ -35,8 +35,10 @@ siguiente sección).
 
 ## Permisos que pide y para qué sirven
 
-En Configuración vas a ver una fila por cada permiso, en **verde** si ya está concedido y en
-**rojo** si falta:
+En Configuración vas a ver una fila por cada permiso que **todavía te falte otorgar** (en
+rojo) — en cuanto lo concedes, esa fila desaparece sola (y vuelve a aparecer si alguna vez
+revocas el permiso desde los Ajustes del sistema). Si ves la sección vacía, es buena señal:
+significa que ya tienes los tres:
 
 | Permiso | Para qué sirve |
 |---|---|
@@ -50,8 +52,13 @@ notificaciones cuando pasa mucho tiempo sin usarla.
 
 ## Uso básico
 
-- **Encendido/Apagado**: en la pantalla principal, el botón grande activa o desactiva por
+En la pantalla principal (Home) solo vas a ver el nombre/versión de la app, "RedSonco" en
+rojo debajo, el botón **Leer** (📖), y el Historial — para todo lo demás, tocá el ícono de
+**tres puntitos (⋮)** arriba a la derecha, que abre **Configuración**.
+
+- **Encendido/Apagado**: dentro de Configuración, al principio — activa o desactiva por
   completo la escucha de notificaciones (útil si quieres pausarla un rato sin desinstalar).
+  El botón solo dice "Activado"/"Desactivado", con el estado del servicio justo debajo.
 - **Historial**: lista de todo lo detectado, con filtro por billetera/app arriba. Si un mensaje
   de WhatsApp traía una foto, audio, video o documento (PDF, Word, Excel, etc.) nuevo, la app
   busca el archivo real y lo muestra ahí mismo — la foto se ve completa, el audio tiene un
@@ -175,19 +182,13 @@ algo que se supone se ve una sola vez).
   (captura de pantalla, grabación de pantalla, o cualquier otro método). No es un error de la
   app, es una limitación de Android/WhatsApp; si necesitas respaldar algo así, pídeselo a
   quien te lo mande como un archivo normal, no "Ver una vez".
-- **Audio "Ver una vez": función experimental nueva (v2.40), para uso interno con
-  empleados.** A diferencia de foto/video, el audio SÍ se puede capturar (la protección de
-  arriba es solo visual). Toca 3 veces el logo de la pantalla principal, ingresa el PIN, y en
-  el panel de Admin que se abre busca "🎙️ Audio 'Ver una vez'" — hay un botón para **armar
-  la grabación**: pide permiso de micrófono y, después, el diálogo
-  del sistema de "grabación de pantalla" (aunque solo se use para audio — es el mismo permiso
-  que exige Android para este tipo de captura). Mientras está armada, si alguien reproduce un
-  mensaje de voz "Ver una vez" de WhatsApp, la app intenta grabarlo y guardarlo junto a la
-  notificación correspondiente en el Historial. **Limitaciones a tener en cuenta:** hay que
-  volver a armarla a mano cada vez que cierras la app o reinicias el teléfono (Android no
-  permite dejarlo activo para siempre); es la primera versión, sin calibrar con uso real
-  todavía. Pensada para arqueos/balances de caja que los empleados mandan así por seguridad —
-  si la usas, considera avisarles que el respaldo existe.
+- **Audio "Ver una vez": RETIRADA de esta versión (desde v2.52), no disponible por
+  ahora.** A diferencia de foto/video, el audio sí se podía capturar (hubo una versión
+  experimental, v2.40-v2.41, pensada para arqueos/balances de caja que los empleados mandan
+  así por seguridad). No vas a encontrar el botón "🎙️ Armar grabación" en el panel de Admin
+  en esta versión — se quitó a pedido explícito del administrador, que decidió sacarla de
+  circulación por ahora. Queda documentada y lista para que el administrador la reactive en
+  una versión futura si lo necesita; no es necesario hacer nada de tu parte.
 
 Falta: un checklist en Configuración de qué tipos guardar/reenviar/reproducir.
 
@@ -211,10 +212,11 @@ Toca **3 veces seguidas** el logo (junto a "miSecretaria Vx.x" en la pantalla pr
 que aparezca el diálogo de PIN (con teclado numérico, desde v2.42). El PIN por defecto es
 **230985**. Al ingresarlo correctamente se abre el **panel de Admin**, con TODO lo sensible en
 un solo lugar (desde v2.43): nombre de sucursal/dispositivo, Token y Chat ID de Telegram,
-intervalo, "Guardar y activar"/"Enviar mensaje de prueba"/"Sincronizar ahora", "Audio 'Ver una
-vez'", y "Compartir Historial/CSV/Log". Nada de esto aparece en Configuración bajo ninguna
-condición — el resto de la Configuración (billeteras, voz, avisos, "Compartir Aplicación",
-etc.) siempre está disponible, con o sin PIN.
+intervalo, "Guardar y activar"/"Enviar mensaje de prueba"/"Sincronizar ahora", y "Compartir
+Historial/CSV/Log". Nada de esto aparece en Configuración bajo ninguna condición — el resto de
+la Configuración (Encendido/Apagado, permisos, billeteras, voz, avisos, "Buscar
+actualización", "Compartir Aplicación", etc.) siempre está disponible, con o sin PIN.
+("Audio 'Ver una vez'" vivía también acá hasta v2.51 — ver más arriba, retirada por ahora.)
 
 ## Configurar el bot de Telegram
 

@@ -6,7 +6,6 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -24,6 +23,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,7 +38,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
 import com.sco.misecretaria.ui.theme.AccentBlue
@@ -67,41 +68,11 @@ class MainActivity : ComponentActivity() {
         mediaPermissionLauncher.launch(perms)
     }
 
-    // v2.40 — captura de audio de "Ver una vez" (pedido explícito del usuario, 2026-09-30):
-    // el permiso de MediaProjection ("grabación de pantalla") es lo único que también sirve
-    // para capturar audio de reproducción de otra app — Android exige el mismo diálogo del
-    // sistema que para grabar pantalla, aunque solo se use para audio. No se puede dejar
-    // otorgado para siempre: hay que "armarlo" de nuevo si se cierra la app o se reinicia el
-    // teléfono. Se pide primero RECORD_AUDIO (permiso normal de Android) y recién si se
-    // concede se lanza el diálogo de MediaProjection.
-    private val recordAudioPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) launchMediaProjectionRequest() else android.widget.Toast.makeText(this, getString(R.string.audio_capture_permission_denied), android.widget.Toast.LENGTH_LONG).show()
-    }
-    private val mediaProjectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK && result.data != null) {
-            val intent = Intent(this, ViewOnceAudioCaptureService::class.java)
-                .putExtra(ViewOnceAudioCaptureService.EXTRA_RESULT_CODE, result.resultCode)
-                .putExtra(ViewOnceAudioCaptureService.EXTRA_RESULT_DATA, result.data)
-            ContextCompat.startForegroundService(this, intent)
-        }
-    }
-
-    fun armViewOnceAudioCapture() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            launchMediaProjectionRequest()
-        } else {
-            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
-    private fun launchMediaProjectionRequest() {
-        val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
-        mediaProjectionLauncher.launch(manager.createScreenCaptureIntent())
-    }
-
-    fun disarmViewOnceAudioCapture() {
-        stopService(Intent(this, ViewOnceAudioCaptureService::class.java))
-    }
+    // Captura de audio de "Ver una vez" (ViewOnceAudioCaptureService) — RETIRADA de la UI en
+    // v2.52 por pedido explícito del usuario (ver CLAUDE.md, sección "Audio 'Ver una vez' —
+    // retirada de la UI"). El servicio y su lógica siguen en el repo, listos para reconectar
+    // estos lanzadores/funciones si se pide reimplementarla; ver esa sección para el checklist
+    // exacto de qué restaurar.
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -242,9 +213,7 @@ enum class PickerTarget { WALLET, APP }
     var history by remember { mutableStateOf(WalletNotificationStore.history()) }
     var pinnedIds by remember { mutableStateOf(WalletNotificationStore.pinnedIds()) }
     var trashCount by remember { mutableStateOf(WalletNotificationStore.trash().size) }
-    var serviceOn by remember { mutableStateOf(DisplayPreferences.serviceEnabled(context)) }
     var filter by remember { mutableStateOf<String?>(null) }
-    var serviceAlive by remember { mutableStateOf(true) }
     var editingAdId by remember { mutableStateOf<String?>(null) }
     var draftPhrase by remember { mutableStateOf("") }
     var editingNoteId by remember { mutableStateOf<String?>(null) }
@@ -276,8 +245,6 @@ enum class PickerTarget { WALLET, APP }
         while (true) {
             history = WalletNotificationStore.history()
             trashCount = WalletNotificationStore.trash().size
-            val hb = DisplayPreferences.heartbeat(context)
-            serviceAlive = hb != 0L && (System.currentTimeMillis() - hb) < 6 * 60 * 60 * 1000L
             delay(700)
         }
     }
@@ -288,34 +255,44 @@ enum class PickerTarget { WALLET, APP }
         pinned + rest
     }
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Image(
-                painter = painterResource(R.mipmap.ic_launcher_foreground),
-                contentDescription = null,
-                modifier = Modifier.size(36.dp).clickable {
-                    val now = System.currentTimeMillis()
-                    if (now - lastLogoTapAt > 1200) logoTapCount = 0
-                    logoTapCount++
-                    lastLogoTapAt = now
-                    if (logoTapCount >= 3) {
-                        logoTapCount = 0
-                        pinInput = ""
-                        pinError = false
-                        showPinDialog = true
+        // v2.52: Configuración se abre con el ícono de tres puntitos arriba a la derecha
+        // (pedido explícito del usuario) — reemplaza el botón "Configuración" que vivía junto
+        // a "Leer". El triple-tap al logo (PIN de administrador) sigue igual, sin cambios.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Image(
+                    painter = painterResource(R.mipmap.ic_launcher_foreground),
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp).clickable {
+                        val now = System.currentTimeMillis()
+                        if (now - lastLogoTapAt > 1200) logoTapCount = 0
+                        logoTapCount++
+                        lastLogoTapAt = now
+                        if (logoTapCount >= 3) {
+                            logoTapCount = 0
+                            pinInput = ""
+                            pinError = false
+                            showPinDialog = true
+                        }
                     }
-                }
-            )
-            Text(AppInfo.DISPLAY, style = MaterialTheme.typography.headlineSmall)
+                )
+                Text(AppInfo.DISPLAY, style = MaterialTheme.typography.headlineSmall)
+            }
+            IconButton(onClick = openSettings) {
+                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.action_settings))
+            }
         }
-        Text(stringResource(R.string.home_subtitle))
+        // v2.52: reemplaza el subtítulo genérico de siempre — pedido explícito del usuario.
+        Text(stringResource(R.string.home_brand_label), color = Color.Red, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = openSettings, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_settings)) }
-            Button(onClick = openRead, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_read)) }
+        // v2.52: único botón visible en Home — pedido explícito del usuario ("solo habrá un
+        // botón: el de Leer"). El botón de Encendido/Apagado se mudó a Configuración, al
+        // inicio (ver SettingsScreen).
+        Button(onClick = openRead, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) {
+            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.action_read))
         }
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = { serviceOn = !serviceOn; DisplayPreferences.setServiceEnabled(context, serviceOn) }, colors = ButtonDefaults.buttonColors(containerColor = if (serviceOn) Color(0xFF188038) else Color(0xFFB00020))) { Text(stringResource(if (serviceOn) R.string.service_toggle_on else R.string.service_toggle_off, AppInfo.NAME)) }
-        Text(stringResource(if (serviceAlive) R.string.service_status_alive else R.string.service_status_dead), color = if (serviceAlive) Color(0xFF188038) else Color(0xFFB00020), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -490,25 +467,6 @@ enum class PickerTarget { WALLET, APP }
                         adminTgStatus = context.getString(R.string.telegram_status_syncing)
                     }) { Text(stringResource(R.string.action_sync_now)) }
                     if (adminTgStatus != null) Text(adminTgStatus!!, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(16.dp))
-                    Text(stringResource(R.string.audio_capture_section_title), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.audio_capture_section_hint), style = MaterialTheme.typography.bodySmall)
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                        Text(stringResource(R.string.audio_capture_unsupported), style = MaterialTheme.typography.bodySmall, color = Color.Red)
-                    } else {
-                        var captureArmed by remember { mutableStateOf(ViewOnceAudioCaptureService.isRunning) }
-                        LaunchedEffect(Unit) { while (true) { captureArmed = ViewOnceAudioCaptureService.isRunning; delay(1000) } }
-                        Text(
-                            stringResource(if (captureArmed) R.string.audio_capture_status_armed else R.string.audio_capture_status_disarmed),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (captureArmed) AccentGreen else Color.Gray
-                        )
-                        if (captureArmed) {
-                            Button(onClick = { activity.disarmViewOnceAudioCapture() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))) { Text(stringResource(R.string.action_disarm_audio_capture)) }
-                        } else {
-                            Button(onClick = { activity.armViewOnceAudioCapture() }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text(stringResource(R.string.action_arm_audio_capture)) }
-                        }
-                    }
                     Spacer(Modifier.height(16.dp))
                     // v2.43: Compartir Historial/CSV/Log se mueven aquí (pedido explícito del
                     // usuario) — "Compartir Aplicación" es la ÚNICA que se queda en
@@ -729,14 +687,40 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateChecked by remember { mutableStateOf(false) }
     var blockedPhrases by remember { mutableStateOf(AdFilterConfig.list(context)) }
+    // v2.52: Encendido/Apagado se mudó de Home a Configuración (pedido explícito del usuario),
+    // al inicio de la pantalla. Lleva consigo el texto de estado del servicio, que vivía junto
+    // al botón en Home.
+    var serviceOn by remember { mutableStateOf(DisplayPreferences.serviceEnabled(context)) }
+    var serviceAlive by remember { mutableStateOf(true) }
+    // v2.52: las tres filas de permisos ahora se ocultan solas en cuanto quedan en verde
+    // (pedido explícito del usuario) — se revisan en un loop, igual que el resto de estados
+    // "en vivo" de la app, para que desaparezcan/reaparezcan sin que el usuario tenga que
+    // salir y volver a entrar a Configuración.
+    var notifOk by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
+    var overlayOk by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var mediaOk by remember { mutableStateOf(WhatsAppMediaScanner.hasMediaPermission(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val hb = DisplayPreferences.heartbeat(context)
+            serviceAlive = hb != 0L && (System.currentTimeMillis() - hb) < 6 * 60 * 60 * 1000L
+            notifOk = isNotificationAccessEnabled(context)
+            overlayOk = Settings.canDrawOverlays(context)
+            mediaOk = WhatsAppMediaScanner.hasMediaPermission(context)
+            delay(1000)
+        }
+    }
     val scope = rememberCoroutineScope()
     val blue = ButtonDefaults.buttonColors(containerColor = AccentBlue)
     BackHandler(onBack = onBack)
     Scaffold { p -> Column(Modifier.padding(p).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { BackButton(onBack); Text(stringResource(R.string.action_settings), style = MaterialTheme.typography.headlineSmall) }
-        PermissionRow(stringResource(R.string.perm_notifications), isNotificationAccessEnabled(context)) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        PermissionRow(stringResource(R.string.perm_overlay), Settings.canDrawOverlays(context)) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
-        PermissionRow(stringResource(R.string.perm_media), WhatsAppMediaScanner.hasMediaPermission(context)) {
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { serviceOn = !serviceOn; DisplayPreferences.setServiceEnabled(context, serviceOn) }, colors = ButtonDefaults.buttonColors(containerColor = if (serviceOn) Color(0xFF188038) else Color(0xFFB00020))) { Text(stringResource(if (serviceOn) R.string.service_toggle_on else R.string.service_toggle_off)) }
+        Text(stringResource(if (serviceAlive) R.string.service_status_alive else R.string.service_status_dead), color = if (serviceAlive) Color(0xFF188038) else Color(0xFFB00020), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(10.dp))
+        if (!notifOk) PermissionRow(stringResource(R.string.perm_notifications), notifOk) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        if (!overlayOk) PermissionRow(stringResource(R.string.perm_overlay), overlayOk) { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = android.net.Uri.parse("package:${context.packageName}") }) }
+        if (!mediaOk) PermissionRow(stringResource(R.string.perm_media), mediaOk) {
             // Desde v2.23: en Android 11+ hace falta el permiso especial "Acceso a todos los
             // archivos" (MANAGE_EXTERNAL_STORAGE) — no un diálogo normal, es una pantalla propia
             // de Ajustes. En versiones más viejas, el permiso clásico de medios sigue sirviendo.
@@ -744,33 +728,6 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
                 context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, android.net.Uri.parse("package:${context.packageName}")))
             } else {
                 activity.requestMediaPermissions()
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(stringResource(R.string.installed_version, AppInfo.VERSION), style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = {
-                checkingUpdate = true; updateChecked = false
-                scope.launch { updateInfo = UpdateManager.checkForUpdate(); checkingUpdate = false; updateChecked = true }
-            }, enabled = !checkingUpdate, colors = blue) { Text(stringResource(if (checkingUpdate) R.string.checking_update else R.string.action_check_update)) }
-        }
-        if (updateChecked) {
-            val info = updateInfo
-            if (info == null) {
-                Text(stringResource(R.string.up_to_date), style = MaterialTheme.typography.bodySmall)
-            } else {
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                    Text(stringResource(R.string.update_available, info.versionName), style = MaterialTheme.typography.titleMedium)
-                    if (info.notes.isNotBlank()) Text(info.notes, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = {
-                        if (!UpdateManager.canInstallPackages(context)) {
-                            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:${context.packageName}")))
-                        } else {
-                            UpdateManager.downloadAndInstall(context, info)
-                        }
-                    }, colors = blue) { Text(stringResource(R.string.action_update_now)) }
-                } }
             }
         }
         Spacer(Modifier.height(10.dp)); SettingSwitch(stringResource(R.string.setting_speech), speech) { speech = it; DisplayPreferences.setSpeechEnabled(context, it) }
@@ -791,11 +748,6 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
         Slider(value = speechRate, onValueChange = { speechRate = it; DisplayPreferences.setSpeechRateMultiplier(context, it) }, valueRange = 0.5f..2.0f, steps = 14)
         TextButton(onClick = { runCatching { context.startActivity(Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) } }) { Text(stringResource(R.string.action_install_voices)) }
         Spacer(Modifier.height(8.dp))
-        // v2.43: "Compartir Historial/CSV/Log" se mueven al panel de Admin (pedido explícito
-        // del usuario) — esta es la ÚNICA que se queda aquí, sin PIN, porque no expone nada
-        // sensible (es solo el instalador de la app, para pasarla a otro teléfono).
-        Button(onClick = { activity.shareApk() }, colors = blue) { Text(stringResource(R.string.action_share_apk)) }
-        Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.backup_section_title), style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TextButton(onClick = { activity.save("${AppInfo.NAME}_backup_${WalletNotificationStore.timestampForFile()}.json", BackupManager.exportJson(context), "application/json") }) { Text(stringResource(R.string.action_save_backup)) }
@@ -863,6 +815,38 @@ private fun LazyListScope.attachmentSection(titleRes: Int, items: List<WalletNot
                 TextButton(onClick = { AdFilterConfig.remove(context, bp.wallet, bp.phrase); blockedPhrases = AdFilterConfig.list(context) }) { Text(stringResource(R.string.action_remove)) }
             } }
         }
+        Spacer(Modifier.height(20.dp))
+        // v2.52: "Buscar actualización" y "Compartir Aplicación" se mudan al final de
+        // Configuración (pedido explícito del usuario) — antes vivían más arriba, cerca de los
+        // permisos y de la voz, respectivamente.
+        Text(stringResource(R.string.installed_version, AppInfo.VERSION), style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = {
+                checkingUpdate = true; updateChecked = false
+                scope.launch { updateInfo = UpdateManager.checkForUpdate(); checkingUpdate = false; updateChecked = true }
+            }, enabled = !checkingUpdate, colors = blue) { Text(stringResource(if (checkingUpdate) R.string.checking_update else R.string.action_check_update)) }
+        }
+        if (updateChecked) {
+            val info = updateInfo
+            if (info == null) {
+                Text(stringResource(R.string.up_to_date), style = MaterialTheme.typography.bodySmall)
+            } else {
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text(stringResource(R.string.update_available, info.versionName), style = MaterialTheme.typography.titleMedium)
+                    if (info.notes.isNotBlank()) Text(info.notes, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = {
+                        if (!UpdateManager.canInstallPackages(context)) {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:${context.packageName}")))
+                        } else {
+                            UpdateManager.downloadAndInstall(context, info)
+                        }
+                    }, colors = blue) { Text(stringResource(R.string.action_update_now)) }
+                } }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = { activity.shareApk() }, colors = blue) { Text(stringResource(R.string.action_share_apk)) }
         Spacer(Modifier.height(24.dp))
     } }
 }

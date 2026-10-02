@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Dashboard de solo lectura de miSecretaria.db (plantilla: miSecretaria.html, en la raíz del
-proyecto — el archivo existe ahí siempre, prendido o apagado el servidor; solo que abrirlo
-directo con doble clic muestra las llaves `{{ ... }}` sin rellenar, porque es una plantilla
-Jinja2, no HTML plano — hay que verlo a través de este servidor, no como archivo suelto).
+"""Dashboard de solo lectura de miSecretaria.db (plantilla: cualquier archivo que termine en
+"miSecretaria.html" en la raíz del proyecto — ver `_nombre_plantilla()` más abajo, tolera que
+el usuario le ponga un prefijo numérico para ordenar sus accesos directos, ej.
+"4_miSecretaria.html". El archivo existe ahí siempre, prendido o apagado el servidor; solo que
+abrirlo directo con doble clic muestra las llaves `{{ ... }}` sin rellenar, porque es una
+plantilla Jinja2, no HTML plano — hay que verlo a través de este servidor, no como archivo
+suelto).
 
 Se enciende/apaga con /panelon y /paneloff desde Telegram — ver csv_importer.py, que es quien
 escucha esos comandos y lanza/mata este proceso (este script NO se conecta solo a Telegram,
@@ -24,6 +27,21 @@ from flask import Flask, redirect, render_template, request, url_for
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "miSecretaria.db"
 PORT = 8766
+
+
+def _nombre_plantilla() -> str:
+    """El usuario reordena sus accesos directos con un prefijo numérico en el explorador de
+    archivos (ej. "4_miSecretaria.html") — en vez de depender de un nombre fijo, se busca
+    cualquier archivo que TERMINE en "miSecretaria.html" en la raíz del proyecto, sin importar
+    qué le pongan adelante. Si no se encuentra ninguno, se cae al nombre original como último
+    recurso (ahí sí Flask va a tirar "plantilla no encontrada", un error más claro que fallar
+    en silencio aquí). Se calcula una sola vez al arrancar — si el archivo se renombra con el
+    servidor ya corriendo, hace falta reiniciarlo para que lo note."""
+    candidatos = sorted(BASE_DIR.glob("*miSecretaria.html"))
+    return candidatos[0].name if candidatos else "miSecretaria.html"
+
+
+TEMPLATE_NAME = _nombre_plantilla()
 
 app = Flask(__name__, template_folder=str(BASE_DIR))
 
@@ -139,7 +157,7 @@ def index():
     sucursal = request.args.get("sucursal", "").strip()
     origen = request.args.get("origen", "").strip()
     msg = request.args.get("msg", "").strip()
-    return render_template("miSecretaria.html", msg=msg, **query_db(sucursal, origen))
+    return render_template(TEMPLATE_NAME, msg=msg, **query_db(sucursal, origen))
 
 
 @app.route("/administrar", methods=["POST"])

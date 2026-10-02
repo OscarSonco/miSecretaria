@@ -62,11 +62,11 @@
     <string name="installed_apps_loading">Cargando aplicaciones instaladas...</string>
 
     <!-- Pantalla principal (Home) -->
-    <string name="home_subtitle">Asistente de notificaciones de billeteras móviles</string>
+    <string name="home_brand_label">RedSonco</string>
     <string name="action_settings">Configuración</string>
     <string name="action_read">Leer</string>
-    <string name="service_toggle_on">%1$s: Activado</string>
-    <string name="service_toggle_off">%1$s: Desactivado</string>
+    <string name="service_toggle_on">Activado</string>
+    <string name="service_toggle_off">Desactivado</string>
     <string name="service_status_alive">Servicio: escuchando ✓</string>
     <string name="service_status_dead">Servicio: sin actividad reciente ⚠</string>
     <string name="history_title">Historial (%1$d)</string>
